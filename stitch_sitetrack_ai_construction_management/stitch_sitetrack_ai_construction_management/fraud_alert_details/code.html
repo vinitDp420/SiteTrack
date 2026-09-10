@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Fraud Alert Details</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-surface-variant": "#44474d",
+                      "surface-tint": "#515f78",
+                      "on-secondary": "#ffffff",
+                      "on-tertiary-container": "#b87500",
+                      "on-tertiary": "#ffffff",
+                      "surface-bright": "#f7f9fb",
+                      "inverse-surface": "#2d3133",
+                      "surface-dim": "#d8dadc",
+                      "outline-variant": "#c5c6cd",
+                      "secondary-fixed-dim": "#bcc7dd",
+                      "outline": "#75777e",
+                      "on-primary-fixed": "#0d1c32",
+                      "surface-variant": "#e0e3e5",
+                      "on-secondary-container": "#586377",
+                      "on-surface": "#191c1e",
+                      "primary-fixed": "#d6e3ff",
+                      "tertiary-fixed": "#ffddb8",
+                      "error": "#ba1a1a",
+                      "on-error": "#ffffff",
+                      "on-primary": "#ffffff",
+                      "surface-container-low": "#f2f4f6",
+                      "surface-container-highest": "#e0e3e5",
+                      "error-container": "#ffdad6",
+                      "surface": "#f7f9fb",
+                      "inverse-on-surface": "#eff1f3",
+                      "on-tertiary-fixed": "#2a1700",
+                      "primary-fixed-dim": "#b9c7e4",
+                      "inverse-primary": "#b9c7e4",
+                      "secondary-container": "#d5e0f7",
+                      "background": "#f7f9fb",
+                      "on-secondary-fixed-variant": "#3c475a",
+                      "primary": "#000000",
+                      "on-tertiary-fixed-variant": "#653e00",
+                      "on-primary-fixed-variant": "#39475f",
+                      "on-error-container": "#93000a",
+                      "tertiary": "#000000",
+                      "surface-container-high": "#e6e8ea",
+                      "surface-container-lowest": "#ffffff",
+                      "tertiary-container": "#2a1700",
+                      "surface-container": "#eceef0",
+                      "on-primary-container": "#76849f",
+                      "secondary-fixed": "#d8e3fa",
+                      "on-background": "#191c1e",
+                      "secondary": "#545f72",
+                      "primary-container": "#0d1c32",
+                      "tertiary-fixed-dim": "#ffb95f",
+                      "on-secondary-fixed": "#111c2c"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "sm": "12px",
+                      "lg": "40px",
+                      "xs": "4px",
+                      "base": "8px",
+                      "md": "24px",
+                      "touch-target": "48px",
+                      "xl": "64px",
+                      "margin-desktop": "48px",
+                      "margin-mobile": "16px",
+                      "gutter": "24px"
+              },
+              "fontFamily": {
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "headline-lg-mobile": [
+                              "Inter"
+                      ],
+                      "label-md": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "label-xl": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-md": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-xl": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "56px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col md:flex-row">
+<!-- Navigations -->
+<!-- Top Nav (Desktop) -->
+<header class="hidden md:flex justify-between items-center px-margin-desktop py-4 w-full top-0 sticky border-b border-outline-variant bg-surface w-full z-50">
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md font-headline-lg text-primary tracking-tight">SiteTrack</span>
+</div>
+<div class="flex items-center gap-md">
+<nav class="flex gap-md">
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-colors px-4 py-2 rounded-lg font-label-md text-label-md" href="#">Dashboard</a>
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-colors px-4 py-2 rounded-lg font-label-md text-label-md" href="#">Monitoring</a>
+<a class="text-primary font-bold border-b-2 border-primary px-4 py-2 rounded-lg font-label-md text-label-md" href="#">Fraud Alerts</a>
+</nav>
+<div class="flex items-center gap-4">
+<button class="p-2 rounded-full hover:bg-surface-container-high transition-colors" data-icon="notifications">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 rounded-full hover:bg-surface-container-high transition-colors" data-icon="settings">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<img alt="Administrator profile" class="w-10 h-10 rounded-full object-cover border border-outline-variant" data-alt="A close-up portrait of an administrator wearing a hard hat, lit by cool natural light, minimal industrial background, high contrast, professional photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC93l5BL62uJ85Uo9MUY3TnDOVpfTVtYay9ayQeg_1YF8xKz4vsv3eVX_J2UAjt7JuKdz4UC7-gyJf19eHKKJemZc4bCzHCrdy9hOHydCZSA_hSOPe_MzEnkJmmtJMTUKgU764q6igNLNkWUdkfLdfciXh4WT0S-oRqstW-b7CYHSkFAvhrRJumBfhUGcX6BdN0_rc-ga47zvh_IkvMks88BIRFJk0BCv3vzzgt8qldjwi2_h4-wWhX6A"/>
+</div>
+</div>
+</header>
+<!-- Side Nav (Desktop) -->
+<aside class="hidden md:flex flex-col h-screen w-64 fixed left-0 top-0 border-r border-outline-variant bg-surface-container-low p-sm z-40 pt-24">
+<div class="mb-lg">
+<h2 class="font-headline-md text-headline-md font-bold text-primary">Project Alpha</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Site ID: 4092-B</p>
+</div>
+<nav class="flex-1 flex flex-col gap-2">
+<a class="flex items-center gap-4 p-3 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-xl text-label-xl">Dashboard</span>
+</a>
+<a class="flex items-center gap-4 p-3 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">videocam</span>
+<span class="font-label-xl text-label-xl">Monitoring</span>
+</a>
+<a class="flex items-center gap-4 p-3 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">groups</span>
+<span class="font-label-xl text-label-xl">Workers</span>
+</a>
+<a class="flex items-center gap-4 p-3 rounded-lg bg-secondary-container text-on-secondary-container font-bold transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">warning</span>
+<span class="font-label-xl text-label-xl">Fraud Alerts</span>
+</a>
+</nav>
+<div class="mt-auto flex flex-col gap-2 border-t border-outline-variant pt-4">
+<button class="bg-tertiary-fixed-dim text-on-tertiary-fixed h-touch-target rounded-lg font-label-xl text-label-xl font-bold active:opacity-80">Clock In</button>
+<a class="flex items-center gap-4 p-3 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-all" href="#">
+<span class="material-symbols-outlined">help</span>
+<span class="font-label-xl text-label-xl">Support</span>
+</a>
+<a class="flex items-center gap-4 p-3 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-all" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-label-xl text-label-xl">Logout</span>
+</a>
+</div>
+</aside>
+<!-- Bottom Nav (Mobile) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full flex justify-around items-center px-4 py-2 pb-safe border-t border-outline-variant bg-surface shadow-lg z-50">
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-variant tap-highlight-none transition-transform duration-100 p-2 rounded-lg" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md text-label-md">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-4 py-1 tap-highlight-none transition-transform duration-100" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">warning</span>
+<span class="font-label-md text-label-md">Alerts</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-variant tap-highlight-none transition-transform duration-100 p-2 rounded-lg" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md text-label-md">Profile</span>
+</a>
+</nav>
+<!-- Main Content -->
+<main class="flex-1 md:ml-64 p-margin-mobile md:p-margin-desktop mb-24 md:mb-0 max-w-5xl mx-auto w-full">
+<!-- Header -->
+<div class="mb-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div>
+<a class="inline-flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors mb-2 font-label-xl text-label-xl" href="#">
+<span class="material-symbols-outlined">arrow_back</span>
+                    Back to Fraud Alerts
+                </a>
+<h1 class="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-background">Alert Details</h1>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-error-container text-on-error-container px-3 py-1 rounded-full font-label-xl text-label-xl inline-flex items-center gap-2 border border-error/20">
+<span class="material-symbols-outlined text-sm">circle</span>
+                    High Priority
+                </span>
+<span class="text-on-surface-variant font-body-md text-body-md">#FA-8924</span>
+</div>
+</div>
+<!-- Alert Bento Grid -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-gutter">
+<!-- Worker Info Card -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-sm col-span-1 md:col-span-1 flex flex-col items-center text-center">
+<div class="relative mb-4">
+<img alt="Worker photo" class="w-32 h-32 rounded-full object-cover border-4 border-surface" data-alt="A portrait of a male construction worker in high-vis gear, looking straight ahead, stark industrial lighting, sharp focus, hyper-realistic, desaturated background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAR2S7PqSA95qy0A4tmI_Up1efgaco0ekaVf0RxeESWDvaw0zNhIsGTLZNRt5n2iKU2LCZYWJ3DQYHF4OqkHj5KE2cKrae8ep9SbeM7qwTqbl2d57pVvEdMOCbQF9Ftaw4TjClbmpwwuVRcy1hSJsQ_w6zMiJgDolp3m31gCy-lG-O-ngFDKE_ILqcCg5Ckm9IeGX-Io3-B3lfO9acasN9PVyKOdMd7qtS0f0LLdCIcJlXXmWM0b5zxPQ"/>
+<div class="absolute bottom-0 right-0 w-8 h-8 bg-error rounded-full border-2 border-surface flex items-center justify-center">
+<span class="material-symbols-outlined text-on-error text-sm">warning</span>
+</div>
+</div>
+<h2 class="font-headline-md text-headline-md text-on-surface mb-1">Marcus Thorne</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mb-4">ID: W-492-B • Heavy Operator</p>
+<div class="w-full flex flex-col gap-2 mt-auto">
+<div class="flex justify-between py-2 border-b border-outline-variant/50">
+<span class="font-label-xl text-label-xl text-on-surface-variant">Check-In</span>
+<span class="font-body-md text-body-md text-on-surface">06:45 AM</span>
+</div>
+<div class="flex justify-between py-2 border-b border-outline-variant/50">
+<span class="font-label-xl text-label-xl text-on-surface-variant">Last Seen</span>
+<span class="font-body-md text-body-md text-on-surface font-bold text-error">07:15 AM</span>
+</div>
+<div class="flex justify-between py-2">
+<span class="font-label-xl text-label-xl text-on-surface-variant">Zone</span>
+<span class="font-body-md text-body-md text-on-surface">Sector 4 (Excavation)</span>
+</div>
+</div>
+</div>
+<!-- Incident Details -->
+<div class="col-span-1 md:col-span-2 flex flex-col gap-gutter">
+<!-- Flagged Event -->
+<div class="bg-tertiary-fixed/20 border border-tertiary-fixed-dim rounded-xl p-md shadow-sm relative overflow-hidden">
+<div class="absolute top-0 right-0 w-32 h-32 bg-tertiary-fixed-dim/10 rounded-bl-full -mr-16 -mt-16 pointer-events-none"></div>
+<h3 class="font-label-xl text-label-xl text-on-surface-variant uppercase tracking-wider mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-on-tertiary-container">flag</span>
+                        Flagged Event
+                    </h3>
+<p class="font-headline-md text-headline-md text-on-surface mb-2">Checked in, not seen on cameras or access points for 4+ hours.</p>
+<p class="font-body-md text-body-md text-on-surface-variant">System detected an anomaly between physical gate access logs and internal facial recognition camera feeds in Sector 4.</p>
+</div>
+<!-- Timeline / Evidence -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-sm flex-1">
+<h3 class="font-label-xl text-label-xl text-on-surface-variant mb-4">Evidence Timeline</h3>
+<div class="relative pl-6 border-l-2 border-surface-variant flex flex-col gap-6">
+<!-- Timeline Item 1 -->
+<div class="relative">
+<div class="absolute -left-[31px] top-1 w-4 h-4 bg-primary rounded-full border-2 border-surface"></div>
+<div class="flex justify-between items-start mb-1">
+<span class="font-label-xl text-label-xl text-on-surface">Main Gate Entry</span>
+<span class="font-label-md text-label-md text-on-surface-variant">06:45 AM</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">NFC Badge Swipe recognized.</p>
+</div>
+<!-- Timeline Item 2 -->
+<div class="relative">
+<div class="absolute -left-[31px] top-1 w-4 h-4 bg-outline-variant rounded-full border-2 border-surface"></div>
+<div class="flex justify-between items-start mb-1">
+<span class="font-label-xl text-label-xl text-on-surface">Sector 4 Camera 02</span>
+<span class="font-label-md text-label-md text-on-surface-variant">07:15 AM</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">Visual confirmation via FR system.</p>
+</div>
+<!-- Timeline Item 3 (Alert) -->
+<div class="relative">
+<div class="absolute -left-[31px] top-1 w-4 h-4 bg-error rounded-full border-2 border-surface"></div>
+<div class="flex justify-between items-start mb-1">
+<span class="font-label-xl text-label-xl text-error font-bold">System Alert Generated</span>
+<span class="font-label-md text-label-md text-on-surface-variant">11:15 AM</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">Threshold of 4 hours without movement/visual ping exceeded.</p>
+</div>
+</div>
+</div>
+<!-- Action Bar -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md shadow-sm flex flex-col sm:flex-row gap-4 items-center justify-end">
+<button class="w-full sm:w-auto px-6 h-touch-target border-2 border-outline-variant text-on-surface hover:bg-surface-variant transition-colors rounded-lg font-label-xl text-label-xl flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">done</span>
+                        Acknowledge
+                    </button>
+<button class="w-full sm:w-auto px-6 h-touch-target bg-tertiary-fixed-dim text-on-tertiary-fixed hover:opacity-90 transition-opacity rounded-lg font-label-xl text-label-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-tertiary-fixed-dim/20">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">search</span>
+                        Investigate Now
+                    </button>
+</div>
+</div>
+</div>
+</main>
+</body></html>

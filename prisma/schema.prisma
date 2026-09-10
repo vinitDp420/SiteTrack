@@ -1,0 +1,330 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  SUPERVISOR
+  WORKER
+}
+
+model User {
+  id                 String            @id @default(uuid())
+  email              String            @unique
+  passwordHash       String
+  name               String
+  role               Role              @default(WORKER)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  worker             Worker?
+  
+  // Relations added for PM extensions:
+  submittedReports   DailyReport[]
+  requestedMaterials MaterialRequest[] @relation("RequestedBy")
+  approvedMaterials  MaterialRequest[] @relation("ApprovedBy")
+  reminders          Reminder[]
+}
+
+enum WorkerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Worker {
+  id              String          @id @default(uuid())
+  userId          String?         @unique
+  user            User?           @relation(fields: [userId], references: [id])
+  name            String
+  phone           String
+  wageRate        Float
+  status          WorkerStatus    @default(ACTIVE)
+  facePhotoUrl    String?
+  projectId       String
+  project         Project         @relation(fields: [projectId], references: [id])
+  // Bank details for automated payouts
+  bankAccountName   String?
+  bankAccountNumber String?
+  ifscCode          String?
+  upiId             String?
+  paymentType       String        @default("DAILY") // DAILY or MONTHLY
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  attendance      Attendance[]
+  payroll         Payroll[]
+  fraudAlerts     FraudAlert[]
+  faceEmbeddings  FaceEmbedding[]
+  payments        Payment[]
+
+  // Relations added for PM extensions:
+  assignedTasks   DailyTask[]
+  assignedTools   Tool[]
+}
+
+model Project {
+  id               String              @id @default(uuid())
+  name             String
+  code             String              @unique
+  location         String?
+  latitude         Float?
+  longitude        Float?
+  status           String              @default("ACTIVE")
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  workers          Worker[]
+  cameras          Camera[]
+  attendance       Attendance[]
+
+  // Relations added for PM extensions:
+  milestones       ScheduleMilestone[]
+  boqItems         BOQItem[]
+  dailyReports     DailyReport[]
+  dailyTasks       DailyTask[]
+  materialRequests MaterialRequest[]
+  stockItems       StockItem[]
+  vehicles         Vehicle[]
+  tools            Tool[]
+  payments         Payment[]
+}
+
+// Automated Payment / Payout record
+model Payment {
+  id                String   @id @default(uuid())
+  workerId          String
+  worker            Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  amount            Float
+  type              String   // DAILY or MONTHLY
+  status            String   @default("PENDING") // PENDING, PROCESSING, SUCCESS, FAILED
+  razorpayPayoutId  String?
+  failureReason     String?
+  paymentDate       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Camera {
+  id          String       @id @default(uuid())
+  name        String
+  sourceUrl   String       // webcam, RTSP URL, or video file path
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id])
+  status      String       @default("ACTIVE")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  attendance  Attendance[]
+}
+
+model Attendance {
+  id            String    @id @default(uuid())
+  workerId      String
+  worker        Worker    @relation(fields: [workerId], references: [id])
+  cameraId      String?
+  camera        Camera?   @relation(fields: [cameraId], references: [id])
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id])
+  checkInTime   DateTime
+  checkOutTime  DateTime?
+  date          DateTime
+  hoursWorked   Float?
+  status        String    @default("ON_SITE")
+  manualBackup  Boolean   @default(false)
+  latitude      Float?
+  longitude     Float?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Payroll {
+  id            String   @id @default(uuid())
+  workerId      String
+  worker        Worker   @relation(fields: [workerId], references: [id])
+  periodStart   DateTime
+  periodEnd     DateTime
+  totalHours    Float
+  totalEarnings Float
+  status        String   @default("PENDING")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model FraudAlert {
+  id        String   @id @default(uuid())
+  workerId  String
+  worker    Worker   @relation(fields: [workerId], references: [id])
+  alertType String
+  severity  String   @default("LOW")
+  timestamp DateTime @default(now())
+  status    String   @default("PENDING")
+  details   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FaceEmbedding {
+  id        String   @id @default(uuid())
+  workerId  String
+  worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  embedding String   @db.Text // JSON representation of 128-d face descriptor vector
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// PHASE 2 NEW MODELS (PROJECT MANAGEMENT)
+// ==========================================
+
+// 1. Project Schedule Milestone (Gantt phases)
+model ScheduleMilestone {
+  id              String   @id @default(uuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  startDate       DateTime
+  endDate         DateTime
+  plannedProgress Float    @default(0.0) // 0.0 - 100.0
+  actualProgress  Float    @default(0.0) // 0.0 - 100.0
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// 2. Bill of Quantities (BOQ) Line Item
+model BOQItem {
+  id            String   @id @default(uuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  description   String
+  unit          String
+  quantity      Float
+  estimatedCost Float
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// 3. Daily Report Note & Photo
+model DailyReport {
+  id            String   @id @default(uuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  note          String   @db.Text
+  photoUrl      String?
+  date          DateTime
+  submittedById String
+  submittedBy   User     @relation(fields: [submittedById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// 4. Daily Task list (assigned to workers)
+model DailyTask {
+  id               String   @id @default(uuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?  @db.Text
+  date             DateTime
+  assignedWorkerId String?
+  assignedWorker   Worker?  @relation(fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+  status           String   @default("PENDING") // PENDING, DONE
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// 5. Material Purchase Request (Requested -> Approved -> Ordered -> Received)
+model MaterialRequest {
+  id            String    @id @default(uuid())
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  itemName      String
+  quantity      Float
+  unit          String
+  status        String    @default("REQUESTED") // REQUESTED, APPROVED, ORDERED, RECEIVED
+  requestedById String
+  requestedBy   User      @relation("RequestedBy", fields: [requestedById], references: [id])
+  approvedById  String?
+  approvedBy    User?     @relation("ApprovedBy", fields: [approvedById], references: [id])
+  supplierId    String?
+  supplier      Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// 6. Simple Stock Inventory per site
+model StockItem {
+  id             String   @id @default(uuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  itemName       String
+  quantityOnHand Float    @default(0.0)
+  unit           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// 7. Supplier Contacts
+model Supplier {
+  id                String            @id @default(uuid())
+  name              String
+  phone             String
+  materialsSupplied String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  materialRequests  MaterialRequest[]
+}
+
+// 8. Vehicle & Equipment Registry
+model Vehicle {
+  id                 String       @id @default(uuid())
+  name               String
+  plateNumber        String?
+  projectId          String?
+  project            Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  status             String       @default("ACTIVE") // ACTIVE, MAINTENANCE
+  maintenanceDueDate DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  logs               VehicleLog[]
+}
+
+// 8b. Fuel & Usage Logs
+model VehicleLog {
+  id         String   @id @default(uuid())
+  vehicleId  String
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  date       DateTime
+  hoursUsed  Float?
+  fuelFilled Float?
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now())
+}
+
+// 9. Tools Management
+model Tool {
+  id               String   @id @default(uuid())
+  name             String
+  quantity         Int      @default(1)
+  projectId        String?
+  project          Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  assignedWorkerId String?
+  assignedWorker   Worker?  @relation(fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+  status           String   @default("AVAILABLE") // AVAILABLE, IN_USE, LOST
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// 10. General Reminders
+model Reminder {
+  id        String   @id @default(uuid())
+  note      String   @db.Text
+  dueDate   DateTime
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

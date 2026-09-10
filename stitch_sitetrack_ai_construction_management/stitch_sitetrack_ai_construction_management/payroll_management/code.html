@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SiteTrack - Payroll</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-surface-variant": "#44474d",
+                        "surface-tint": "#515f78",
+                        "on-secondary": "#ffffff",
+                        "on-tertiary-container": "#b87500",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#f7f9fb",
+                        "inverse-surface": "#2d3133",
+                        "surface-dim": "#d8dadc",
+                        "outline-variant": "#c5c6cd",
+                        "secondary-fixed-dim": "#bcc7dd",
+                        "outline": "#75777e",
+                        "on-primary-fixed": "#0d1c32",
+                        "surface-variant": "#e0e3e5",
+                        "on-secondary-container": "#586377",
+                        "on-surface": "#191c1e",
+                        "primary-fixed": "#d6e3ff",
+                        "tertiary-fixed": "#ffddb8",
+                        "error": "#ba1a1a",
+                        "on-error": "#ffffff",
+                        "on-primary": "#ffffff",
+                        "surface-container-low": "#f2f4f6",
+                        "surface-container-highest": "#e0e3e5",
+                        "error-container": "#ffdad6",
+                        "surface": "#f7f9fb",
+                        "inverse-on-surface": "#eff1f3",
+                        "on-tertiary-fixed": "#2a1700",
+                        "primary-fixed-dim": "#b9c7e4",
+                        "inverse-primary": "#b9c7e4",
+                        "secondary-container": "#d5e0f7",
+                        "background": "#f7f9fb",
+                        "on-secondary-fixed-variant": "#3c475a",
+                        "primary": "#000000",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "on-primary-fixed-variant": "#39475f",
+                        "on-error-container": "#93000a",
+                        "tertiary": "#000000",
+                        "surface-container-high": "#e6e8ea",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary-container": "#2a1700",
+                        "surface-container": "#eceef0",
+                        "on-primary-container": "#76849f",
+                        "secondary-fixed": "#d8e3fa",
+                        "on-background": "#191c1e",
+                        "secondary": "#545f72",
+                        "primary-container": "#0d1c32",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "on-secondary-fixed": "#111c2c",
+                        "accent": "#ffbf00"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sm": "12px",
+                        "lg": "40px",
+                        "xs": "4px",
+                        "base": "8px",
+                        "md": "24px",
+                        "touch-target": "48px",
+                        "xl": "64px",
+                        "margin-desktop": "48px",
+                        "margin-mobile": "16px",
+                        "gutter": "24px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-xl": ["Inter"],
+                        "display-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-xl": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col md:flex-row">
+<!-- TopNavBar (Mobile Only) -->
+<header class="md:hidden w-full top-0 sticky bg-surface border-b border-outline-variant flex justify-between items-center px-margin-mobile py-4 z-40">
+<div class="font-headline-lg-mobile text-primary tracking-tight font-bold">SiteTrack</div>
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer active:opacity-80">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer active:opacity-80">settings</span>
+</div>
+</header>
+<!-- SideNavBar (Desktop Only) -->
+<nav class="hidden md:flex bg-surface-container-low h-screen w-64 fixed left-0 top-0 border-r border-outline-variant flex-col p-sm z-40">
+<div class="font-headline-md font-bold text-primary mb-lg px-4">SiteTrack</div>
+<div class="flex items-center gap-sm px-4 mb-md">
+<div class="w-10 h-10 rounded-full overflow-hidden bg-outline-variant">
+<img alt="Site Manager" class="w-full h-full object-cover" data-alt="Close up professional portrait of a construction site manager wearing a hard hat, set against a blurred background of an active construction site with subtle steel grey and white tones to match the UI palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDYMAqYc0URgIiR0hSZ_B6ZfdCAuHAK8JUmKGnWbaasU7Hpm5BwSE4acpwsoSIe3XECE65RmtHqxHLpiRfRpWdiweeC2NKRAhqWMYH0o1ai1rhLMyG4jEmf5YJbQxpwVZUXrYxjGaolhz4T1PYN_aSGkwBqwNjdFpC-NXnnUZ0BUH_yeqP7tkwqmvVKPcvWtnnzivTxrbgIq0GrWnDfC0jJBDCI7OADdG6eZAFqmIl8k8hevR2N5fkHRA"/>
+</div>
+<div>
+<div class="font-label-xl text-on-surface">Project Alpha</div>
+<div class="font-label-md text-on-surface-variant">Site ID: 4092-B</div>
+</div>
+</div>
+<div class="flex-1 space-y-1">
+<a class="flex items-center gap-md px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-xl">Dashboard</span>
+</a>
+<a class="flex items-center gap-md px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">videocam</span>
+<span class="font-label-xl">Monitoring</span>
+</a>
+<a class="flex items-center gap-md px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">groups</span>
+<span class="font-label-xl">Workers</span>
+</a>
+<a class="flex items-center gap-md px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">event_available</span>
+<span class="font-label-xl">Attendance</span>
+</a>
+<a class="flex items-center gap-md px-4 py-3 rounded-lg bg-secondary-container text-on-secondary-container font-bold active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">payments</span>
+<span class="font-label-xl">Payroll</span>
+</a>
+<a class="flex items-center gap-md px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">warning</span>
+<span class="font-label-xl">Fraud Alerts</span>
+</a>
+</div>
+<div class="mt-auto pt-4 border-t border-outline-variant space-y-1">
+<button class="w-full bg-accent text-primary-container font-label-xl h-touch-target rounded-lg flex items-center justify-center gap-xs mb-sm active:scale-95 transition-transform">
+                Clock In
+            </button>
+<a class="flex items-center gap-md px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">help</span>
+<span class="font-label-xl">Support</span>
+</a>
+<a class="flex items-center gap-md px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-label-xl">Logout</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="flex-1 md:ml-64 p-margin-mobile md:p-margin-desktop pb-24 md:pb-margin-desktop bg-surface w-full overflow-x-hidden">
+<div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-lg gap-4">
+<div>
+<h1 class="font-display-lg text-on-surface">Payroll</h1>
+<p class="font-body-md text-on-surface-variant mt-2">Manage weekly compensation for Project Alpha workers.</p>
+</div>
+<div class="flex flex-wrap gap-sm w-full md:w-auto">
+<button class="flex-1 md:flex-none h-touch-target px-md border-2 border-outline-variant text-on-surface font-label-xl rounded-lg hover:bg-surface-variant transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">download</span>
+                    Export CSV
+                </button>
+<button class="flex-1 md:flex-none h-touch-target px-md bg-primary text-on-primary font-label-xl rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">play_arrow</span>
+                    Run Payroll
+                </button>
+</div>
+</div>
+<!-- Filters / Search -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md mb-md shadow-sm flex flex-col md:flex-row gap-md items-center">
+<div class="relative w-full md:flex-1">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="w-full h-touch-target pl-12 pr-4 border-2 border-outline-variant rounded-lg bg-transparent font-body-md text-on-surface focus:border-primary focus:ring-0 transition-colors" placeholder="Search by name or ID..." type="text"/>
+<label class="absolute -top-2.5 left-3 bg-surface-container-lowest px-1 font-label-md text-on-surface-variant">Worker Search</label>
+</div>
+<div class="flex gap-sm w-full md:w-auto">
+<select class="h-touch-target px-4 border-2 border-outline-variant rounded-lg bg-transparent font-body-md text-on-surface focus:border-primary focus:ring-0 transition-colors flex-1 md:w-48 appearance-none">
+<option>Week 42 (Oct 16 - 22)</option>
+<option>Week 41 (Oct 9 - 15)</option>
+</select>
+<button class="h-touch-target w-touch-target border-2 border-outline-variant rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined">filter_list</span>
+</button>
+</div>
+</div>
+<!-- Payroll Table Container (Card) -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse min-w-[800px]">
+<thead>
+<tr class="bg-surface-container-low border-b border-outline-variant">
+<th class="py-4 px-md font-label-md text-on-surface-variant uppercase tracking-wider">Worker</th>
+<th class="py-4 px-md font-label-md text-on-surface-variant uppercase tracking-wider">Role</th>
+<th class="py-4 px-md font-label-md text-on-surface-variant uppercase tracking-wider text-right">Days Worked</th>
+<th class="py-4 px-md font-label-md text-on-surface-variant uppercase tracking-wider text-right">Wage Rate</th>
+<th class="py-4 px-md font-label-md text-on-surface-variant uppercase tracking-wider text-right">Calc. Salary</th>
+<th class="py-4 px-md font-label-md text-on-surface-variant uppercase tracking-wider text-center">Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-bright transition-colors group">
+<td class="py-3 px-md">
+<div class="flex items-center gap-sm">
+<div class="w-10 h-10 rounded-full bg-surface-variant overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover" data-alt="Close up portrait of a male construction worker wearing a high visibility vest and hard hat, rugged minimal industrial aesthetic, steel and white palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB2dtGpHDtnX7xZqBpEAqSmn_x0Fz3IAGmSnheaazQcVcOaOkltc0WvtK6wbF4ZPJ9dklpL5eDujoTbIdt_NSNv_7Izua-48F2mdwVDCJorpTzKdDlNfjkgDvpb8or6X1v0xvZcf57mpk5O_FEIT5JxzEAyZexB60GXGV2AuBWjE5hVrx3gon0WzOGZwnwwhK-CTUTLYhA0Oe9RHVJ4ZJYDLRwgK5aIgQJ4nxGpCTkfKUkbnuzg-Po68Q"/>
+</div>
+<div>
+<div class="font-body-md font-semibold text-on-surface">James Kowalski</div>
+<div class="font-label-md text-on-surface-variant">ID: W-1042</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-md">
+<span class="px-2 py-1 rounded bg-surface-variant text-on-surface-variant font-label-md">Heavy Operator</span>
+</td>
+<td class="py-3 px-md text-right font-body-md text-on-surface">5 / 5</td>
+<td class="py-3 px-md text-right font-body-md text-on-surface-variant">$35.00/hr</td>
+<td class="py-3 px-md text-right font-headline-md text-on-surface">$1,400.00</td>
+<td class="py-3 px-md text-center">
+<button class="h-touch-target px-4 border border-outline-variant rounded-lg text-primary font-label-md hover:bg-secondary-container transition-colors opacity-100 md:opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 w-full max-w-[160px] mx-auto">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span>
+                                    Payslip
+                                </button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-bright transition-colors group">
+<td class="py-3 px-md">
+<div class="flex items-center gap-sm">
+<div class="w-10 h-10 rounded-full bg-surface-variant overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover" data-alt="Close up portrait of a female construction foreman wearing safety goggles, minimal industrial aesthetic, neutral color palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBY-2pDxhQEs7MAPA8tIr-g7iKHZknkOuGyzps-lDqtqz0--XaeqI9eGQI1Wd8BKY3ER02KJhOmO4Nblyu0KJ-dqRsIOROOGImn2oyB0IgpDiU8QDAv8MT0mhyqguj4toK70x8F_hvF9BiRshBioYD9sz5Wqc1i1zZZg5Ak6Y_viuRcJx8Vxbiny9d8eccGYZYJhMgecYzK2PZ4FBoA_2Or8qri7Zp5ss56H-a6Nu2asZl4YH8vumgC1A"/>
+</div>
+<div>
+<div class="font-body-md font-semibold text-on-surface">Sarah Jenkins</div>
+<div class="font-label-md text-on-surface-variant">ID: W-1193</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-md">
+<span class="px-2 py-1 rounded bg-surface-variant text-on-surface-variant font-label-md">Foreman</span>
+</td>
+<td class="py-3 px-md text-right font-body-md text-on-surface">6 / 5</td>
+<td class="py-3 px-md text-right font-body-md text-on-surface-variant">$42.50/hr</td>
+<td class="py-3 px-md text-right font-headline-md text-on-surface">$2,040.00</td>
+<td class="py-3 px-md text-center">
+<button class="h-touch-target px-4 border border-outline-variant rounded-lg text-primary font-label-md hover:bg-secondary-container transition-colors opacity-100 md:opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 w-full max-w-[160px] mx-auto">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span>
+                                    Payslip
+                                </button>
+</td>
+</tr>
+<!-- Row 3 - Pending/Issue -->
+<tr class="hover:bg-surface-bright transition-colors group bg-error-container/20">
+<td class="py-3 px-md">
+<div class="flex items-center gap-sm">
+<div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant font-headline-md flex-shrink-0">
+                                        MR
+                                    </div>
+<div>
+<div class="font-body-md font-semibold text-on-surface flex items-center gap-xs">
+                                            Marcus Reed
+                                            <span class="material-symbols-outlined text-error text-[16px]" style="font-variation-settings: 'FILL' 1;">error</span>
+</div>
+<div class="font-label-md text-on-surface-variant">ID: W-1204</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-md">
+<span class="px-2 py-1 rounded bg-surface-variant text-on-surface-variant font-label-md">Laborer</span>
+</td>
+<td class="py-3 px-md text-right font-body-md text-on-surface">3.5 / 5</td>
+<td class="py-3 px-md text-right font-body-md text-on-surface-variant">$28.00/hr</td>
+<td class="py-3 px-md text-right font-headline-md text-on-surface">
+                                $784.00
+                                <div class="font-label-md text-error font-normal mt-1">Discrepancy flag</div>
+</td>
+<td class="py-3 px-md text-center">
+<button class="h-touch-target px-4 bg-outline-variant/30 border border-outline-variant rounded-lg text-on-surface-variant font-label-md flex items-center justify-center gap-2 w-full max-w-[160px] mx-auto cursor-not-allowed">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span>
+                                    Review Needed
+                                </button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="border-t border-outline-variant p-4 flex items-center justify-between text-on-surface-variant font-label-md">
+<div>Showing 1 to 3 of 42 workers</div>
+<div class="flex gap-2">
+<button class="w-10 h-10 border border-outline-variant rounded flex items-center justify-center hover:bg-surface-variant disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<button class="w-10 h-10 border border-outline-variant rounded flex items-center justify-center hover:bg-surface-variant">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full flex justify-around items-center px-4 py-2 pb-safe bg-surface dark:bg-inverse-surface border-t border-outline-variant shadow-lg z-50">
+<a class="flex flex-col items-center justify-center text-on-surface-variant tap-highlight-none transition-transform duration-100 active:bg-surface-variant w-16 py-1" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md mt-1">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant tap-highlight-none transition-transform duration-100 active:bg-surface-variant w-16 py-1" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="font-label-md mt-1">History</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-4 py-1 tap-highlight-none transition-transform duration-100" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">receipt_long</span>
+<span class="font-label-md mt-1">Payslip</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant tap-highlight-none transition-transform duration-100 active:bg-surface-variant w-16 py-1" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md mt-1">Profile</span>
+</a>
+</nav>
+</body></html>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Login - SiteTrack</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-surface-variant": "#44474d",
+                        "surface-tint": "#515f78",
+                        "on-secondary": "#ffffff",
+                        "on-tertiary-container": "#b87500",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#f7f9fb",
+                        "inverse-surface": "#2d3133",
+                        "surface-dim": "#d8dadc",
+                        "outline-variant": "#c5c6cd",
+                        "secondary-fixed-dim": "#bcc7dd",
+                        "outline": "#75777e",
+                        "on-primary-fixed": "#0d1c32",
+                        "surface-variant": "#e0e3e5",
+                        "on-secondary-container": "#586377",
+                        "on-surface": "#191c1e",
+                        "primary-fixed": "#d6e3ff",
+                        "tertiary-fixed": "#ffddb8",
+                        "error": "#ba1a1a",
+                        "on-error": "#ffffff",
+                        "on-primary": "#ffffff",
+                        "surface-container-low": "#f2f4f6",
+                        "surface-container-highest": "#e0e3e5",
+                        "error-container": "#ffdad6",
+                        "surface": "#f7f9fb",
+                        "inverse-on-surface": "#eff1f3",
+                        "on-tertiary-fixed": "#2a1700",
+                        "primary-fixed-dim": "#b9c7e4",
+                        "inverse-primary": "#b9c7e4",
+                        "secondary-container": "#d5e0f7",
+                        "background": "#f7f9fb",
+                        "on-secondary-fixed-variant": "#3c475a",
+                        "primary": "#000000",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "on-primary-fixed-variant": "#39475f",
+                        "on-error-container": "#93000a",
+                        "tertiary": "#000000",
+                        "surface-container-high": "#e6e8ea",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary-container": "#2a1700",
+                        "surface-container": "#eceef0",
+                        "on-primary-container": "#76849f",
+                        "secondary-fixed": "#d8e3fa",
+                        "on-background": "#191c1e",
+                        "secondary": "#545f72",
+                        "primary-container": "#0d1c32",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "on-secondary-fixed": "#111c2c"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sm": "12px",
+                        "lg": "40px",
+                        "xs": "4px",
+                        "base": "8px",
+                        "md": "24px",
+                        "touch-target": "48px",
+                        "xl": "64px",
+                        "margin-desktop": "48px",
+                        "margin-mobile": "16px",
+                        "gutter": "24px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-xl": ["Inter"],
+                        "display-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-xl": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .custom-shadow { box-shadow: 0 8px 24px -4px rgba(13, 28, 50, 0.12); }
+    </style>
+</head>
+<body class="h-full bg-background text-on-background font-body-md antialiased flex items-center justify-center p-margin-mobile md:p-margin-desktop">
+<!-- Login Card -->
+<main class="w-full max-w-md bg-surface-container-lowest border border-outline-variant rounded-xl custom-shadow flex flex-col overflow-hidden">
+<!-- Header / Logo Area -->
+<div class="px-md pt-lg pb-md flex flex-col items-center border-b border-surface-container-highest bg-surface">
+<div class="w-20 h-20 bg-primary-container rounded-lg flex items-center justify-center mb-md text-on-primary shadow-sm">
+<span class="material-symbols-outlined" style="font-size: 40px; font-variation-settings: 'FILL' 1;">business</span>
+</div>
+<h1 class="font-headline-lg-mobile md:font-headline-lg text-primary tracking-tight text-center">SiteTrack</h1>
+<p class="font-body-md text-on-surface-variant mt-xs text-center">Sign in to your mission control.</p>
+</div>
+<!-- Form Area -->
+<form action="#" class="p-md flex flex-col gap-md" method="POST">
+<!-- Role Selector -->
+<div class="flex flex-col gap-xs">
+<label class="font-label-md text-on-surface-variant uppercase tracking-wider" for="role">Select Role</label>
+<div class="relative">
+<select class="appearance-none w-full bg-surface-container-low border border-outline-variant text-on-surface font-body-md rounded h-[48px] px-sm pr-10 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all" id="role" name="role">
+<option>Administrator</option>
+<option>Supervisor</option>
+<option>Worker</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-sm text-on-surface-variant">
+<span class="material-symbols-outlined">expand_more</span>
+</div>
+</div>
+</div>
+<!-- Email Input -->
+<div class="flex flex-col gap-xs">
+<label class="font-label-md text-on-surface-variant uppercase tracking-wider" for="email">Email Address</label>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-sm text-on-surface-variant z-10 pointer-events-none">mail</span>
+<input class="w-full bg-surface-container-low border border-outline-variant text-on-surface font-body-md rounded h-[48px] pl-10 pr-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder-on-surface-variant/50 transition-all" id="email" name="email" placeholder="name@company.com" required="" type="email"/>
+</div>
+</div>
+<!-- Password Input -->
+<div class="flex flex-col gap-xs">
+<div class="flex justify-between items-center">
+<label class="font-label-md text-on-surface-variant uppercase tracking-wider" for="password">Password</label>
+<a class="font-label-md text-primary hover:underline" href="#">Forgot password?</a>
+</div>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-sm text-on-surface-variant z-10 pointer-events-none">lock</span>
+<input class="w-full bg-surface-container-low border border-outline-variant text-on-surface font-body-md rounded h-[48px] pl-10 pr-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder-on-surface-variant/50 transition-all" id="password" name="password" placeholder="••••••••" required="" type="password"/>
+</div>
+</div>
+<!-- Remember Me -->
+<div class="flex items-center">
+<input class="h-5 w-5 rounded border-outline-variant text-primary focus:ring-primary bg-surface-container-low" id="remember-me" name="remember-me" type="checkbox"/>
+<label class="ml-2 block font-body-md text-on-surface" for="remember-me">Remember this device</label>
+</div>
+<!-- Submit Button -->
+<button class="mt-xs w-full bg-primary-container text-on-primary h-[48px] rounded-lg font-label-xl uppercase tracking-wider flex items-center justify-center gap-xs hover:bg-primary-container/90 active:scale-[0.98] transition-all" type="submit">
+<span>Login</span>
+<span class="material-symbols-outlined">arrow_forward</span>
+</button>
+</form>
+<!-- Footer / Support -->
+<div class="px-md py-sm bg-surface-container-lowest border-t border-surface-container-highest text-center">
+<p class="font-label-md text-on-surface-variant">Need access? <a class="text-primary hover:underline font-bold" href="#">Contact IT Support</a></p>
+</div>
+</main>
+</body></html>

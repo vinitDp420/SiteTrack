@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SiteTrack - Camera Monitoring</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-surface-variant": "#44474d",
+                    "surface-tint": "#515f78",
+                    "on-secondary": "#ffffff",
+                    "on-tertiary-container": "#b87500",
+                    "on-tertiary": "#ffffff",
+                    "surface-bright": "#f7f9fb",
+                    "inverse-surface": "#2d3133",
+                    "surface-dim": "#d8dadc",
+                    "outline-variant": "#c5c6cd",
+                    "secondary-fixed-dim": "#bcc7dd",
+                    "outline": "#75777e",
+                    "on-primary-fixed": "#0d1c32",
+                    "surface-variant": "#e0e3e5",
+                    "on-secondary-container": "#586377",
+                    "on-surface": "#191c1e",
+                    "primary-fixed": "#d6e3ff",
+                    "tertiary-fixed": "#ffddb8",
+                    "error": "#ba1a1a",
+                    "on-error": "#ffffff",
+                    "on-primary": "#ffffff",
+                    "surface-container-low": "#f2f4f6",
+                    "surface-container-highest": "#e0e3e5",
+                    "error-container": "#ffdad6",
+                    "surface": "#f7f9fb",
+                    "inverse-on-surface": "#eff1f3",
+                    "on-tertiary-fixed": "#2a1700",
+                    "primary-fixed-dim": "#b9c7e4",
+                    "inverse-primary": "#b9c7e4",
+                    "secondary-container": "#d5e0f7",
+                    "background": "#f7f9fb",
+                    "on-secondary-fixed-variant": "#3c475a",
+                    "primary": "#000000",
+                    "on-tertiary-fixed-variant": "#653e00",
+                    "on-primary-fixed-variant": "#39475f",
+                    "on-error-container": "#93000a",
+                    "tertiary": "#000000",
+                    "surface-container-high": "#e6e8ea",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary-container": "#2a1700",
+                    "surface-container": "#eceef0",
+                    "on-primary-container": "#76849f",
+                    "secondary-fixed": "#d8e3fa",
+                    "on-background": "#191c1e",
+                    "secondary": "#545f72",
+                    "primary-container": "#0d1c32",
+                    "tertiary-fixed-dim": "#ffb95f",
+                    "on-secondary-fixed": "#111c2c"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sm": "12px",
+                    "lg": "40px",
+                    "xs": "4px",
+                    "base": "8px",
+                    "md": "24px",
+                    "touch-target": "48px",
+                    "xl": "64px",
+                    "margin-desktop": "48px",
+                    "margin-mobile": "16px",
+                    "gutter": "24px"
+            },
+            "fontFamily": {
+                    "headline-md": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "label-md": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "body-md": ["Inter"],
+                    "label-xl": ["Inter"],
+                    "display-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "700"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "label-xl": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                    "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        /* Custom styles for glitch effect on video hover */
+        .video-feed:hover .glitch-overlay {
+            opacity: 0.1;
+            animation: noise 0.2s infinite;
+        }
+        @keyframes noise {
+            0% { transform: translate(0,0); }
+            10% { transform: translate(-5%,-5%); }
+            20% { transform: translate(-10%,5%); }
+            30% { transform: translate(5%,-10%); }
+            40% { transform: translate(-5%,15%); }
+            50% { transform: translate(-10%,5%); }
+            60% { transform: translate(15%,0); }
+            70% { transform: translate(0,10%); }
+            80% { transform: translate(-15%,0); }
+            90% { transform: translate(10%,5%); }
+            100% { transform: translate(5%,0); }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col md:flex-row">
+<!-- SideNavBar (Desktop Only) -->
+<nav class="hidden md:flex bg-surface-container-low dark:bg-inverse-surface h-screen w-64 fixed left-0 top-0 border-r border-outline-variant dark:border-on-surface-variant flex-col h-full p-sm z-40">
+<div class="mb-lg">
+<h1 class="font-headline-md text-headline-md font-bold text-primary">SiteTrack</h1>
+</div>
+<div class="flex items-center gap-sm mb-lg p-sm border border-outline-variant rounded-lg bg-surface">
+<img class="w-10 h-10 rounded-full object-cover" data-alt="A small circular avatar of a construction site manager wearing a white hardhat and safety vest against a bright blue sky. Minimalist industrial tech style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDFcTjIGXRmtBgBATw65jruE1sxz6fpINR0OP7sK0jlnE5z9gfu_SWH7xRQJY22Q35W5YuQQ4ijAdJEah5lToT4rEQOafyeNdKrGoPUUoozksGEcXtAcqPE54zFC2BfBwHJ0YEbRMQrVEdaFQ3XtOItWrBT4fnk4MN8ydUF1d082nIqLMu9pkvcihVTCFBInnEjHYS8clzSka2e0TbatwhvSwHX0sG1kh13BeqO-uulfSc01GaomGWMRw"/>
+<div>
+<p class="font-label-xl text-label-xl text-on-surface">Project Alpha</p>
+<p class="font-label-md text-label-md text-on-surface-variant">Site ID: 4092-B</p>
+</div>
+</div>
+<button class="bg-on-tertiary-container text-on-primary font-label-xl text-label-xl w-full h-touch-target rounded-lg mb-lg hover:opacity-90 active:scale-95 duration-150 transition-all">Clock In</button>
+<ul class="flex-1 space-y-xs">
+<li>
+<a class="flex items-center gap-sm p-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant dark:hover:bg-on-surface-variant transition-all active:scale-95 duration-150 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dashboard</span>
+<span class="font-label-xl text-label-xl">Dashboard</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-sm p-sm bg-secondary-container text-on-secondary-container font-bold rounded-lg hover:bg-surface-variant dark:hover:bg-on-surface-variant transition-all active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">videocam</span>
+<span class="font-label-xl text-label-xl">Monitoring</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-sm p-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant dark:hover:bg-on-surface-variant transition-all active:scale-95 duration-150 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">groups</span>
+<span class="font-label-xl text-label-xl">Workers</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-sm p-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant dark:hover:bg-on-surface-variant transition-all active:scale-95 duration-150 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">event_available</span>
+<span class="font-label-xl text-label-xl">Attendance</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-sm p-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant dark:hover:bg-on-surface-variant transition-all active:scale-95 duration-150 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">payments</span>
+<span class="font-label-xl text-label-xl">Payroll</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-sm p-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant dark:hover:bg-on-surface-variant transition-all active:scale-95 duration-150 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">warning</span>
+<span class="font-label-xl text-label-xl">Fraud Alerts</span>
+</a>
+</li>
+</ul>
+<ul class="space-y-xs mt-auto pt-sm border-t border-outline-variant">
+<li>
+<a class="flex items-center gap-sm p-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all active:scale-95 duration-150 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">help</span>
+<span class="font-label-xl text-label-xl">Support</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-sm p-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all active:scale-95 duration-150 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">logout</span>
+<span class="font-label-xl text-label-xl">Logout</span>
+</a>
+</li>
+</ul>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-64 pb-24 md:pb-0">
+<!-- TopNavBar (Mobile & Desktop) -->
+<header class="bg-surface dark:bg-inverse-surface w-full top-0 sticky border-b border-outline-variant dark:border-on-surface-variant flex justify-between items-center px-margin-mobile md:px-margin-desktop py-4 z-30">
+<div class="md:hidden">
+<span class="font-headline-md text-headline-md font-bold text-primary dark:text-primary-fixed tracking-tight">SiteTrack</span>
+</div>
+<div class="hidden md:block">
+<h2 class="font-headline-md text-headline-md text-on-surface">Live Monitoring</h2>
+</div>
+<div class="flex items-center gap-md">
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" style="font-variation-settings: 'FILL' 0;">search</span>
+<input class="pl-10 pr-4 py-2 border border-outline-variant rounded-full bg-surface-container-lowest focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-body-md text-body-md" placeholder="Search cameras..." type="text"/>
+</div>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings</span>
+</button>
+<img class="w-10 h-10 rounded-full border border-outline-variant object-cover cursor-pointer hover:opacity-80 transition-opacity" data-alt="A professional headshot of an administrator in a high-vis jacket, cropped as a small circular profile icon. High contrast, sharp focus, industrial setting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZVmCQC0Fs0dgKJzVaXJ00xIj3CaPhRvT2Vjh6cDA-D11ZV8gO3BgT4V8BWDWLcGvtjZJKZBNYCjfErU5_ypfKpXUL5-of6NGnABQTjWmx-kD8pIKhOwRZIF9-zK1hCylyMhw1a9z8IbVNzy_9ELG0UARv7HwNgUKo6ke2jK9k0w-_IlEgzRA8JyqZcxSVrKrU8wWOrQ5WqjEGjkLOTUDl06o_aE3FyzN0YJ1LqiFQO9-vnY7jYPyWkw"/>
+</div>
+</header>
+<!-- Monitoring Canvas -->
+<div class="p-margin-mobile md:p-margin-desktop">
+<div class="flex flex-col lg:flex-row gap-gutter">
+<!-- Video Feed Column -->
+<div class="flex-1">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg overflow-hidden shadow-sm flex flex-col h-full video-feed relative group cursor-crosshair">
+<!-- Video Header -->
+<div class="p-sm md:p-md border-b border-outline-variant flex justify-between items-start md:items-center bg-surface">
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+                                    Main Gate Turnstile
+                                    <span class="inline-flex items-center gap-1 px-2 py-1 bg-surface-container-high rounded text-primary font-label-md text-label-md border border-outline-variant">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                                        ONLINE
+                                    </span>
+</h3>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 0;">location_on</span>
+                                    Zone A, North Entrance
+                                </p>
+</div>
+<div class="flex gap-2 mt-2 md:mt-0">
+<button class="p-2 border border-outline-variant rounded text-on-surface hover:bg-surface-variant transition-colors" title="Settings">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">tune</span>
+</button>
+<button class="p-2 border border-outline-variant rounded text-on-surface hover:bg-surface-variant transition-colors" title="Expand">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">fullscreen</span>
+</button>
+</div>
+</div>
+<!-- Video Area -->
+<div class="relative bg-inverse-surface aspect-video w-full overflow-hidden">
+<!-- Simulated Feed Image -->
+<div class="absolute inset-0 bg-cover bg-center opacity-80 mix-blend-luminosity" data-alt="A slightly grainy, high-contrast black and white security camera feed showing construction workers in hardhats and safety gear passing through a metal turnstile at a job site. Industrial, gritty, realistic." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBA9XlFviCKQJvh0uihHNzDWiaWxd82JeqUmbr4M0i_ttmVtzK_JWhaRtoxiWh-7VJp3VaXnowejuc8Msz-AJiHoAmVQprFrsxt1v5TGf12tD2R-BjrHYC1p98wEI-XVtMeO8zr6Y-PXWtDwEL1-EXbr1wtUPGMrYTrsvhwUDWpUiIyZHL6Q4SzZ1HKvhOO3rVEuXgpf6W5BLA4mniTP_oUhGR70snC7wPijPzj7mMTLXQFur0_6ePgFA')"></div>
+<!-- CRT Scanline / Glitch Overlay -->
+<div class="absolute inset-0 pointer-events-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPjxyZWN0IHdpZHRoPSI0IiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIG9wYWNpdHk9IjAuMSIvPjwvc3ZnPg==')] glitch-overlay transition-opacity duration-300 opacity-30"></div>
+<!-- Timestamp Overlay -->
+<div class="absolute top-4 right-4 bg-primary-container/80 text-primary-fixed px-3 py-1 font-mono text-sm tracking-wider border border-primary-fixed/30 backdrop-blur-sm rounded">
+<span id="live-time">14:23:45 REC</span>
+</div>
+<!-- Facial Recognition Overlay (Simulated) -->
+<div class="absolute bottom-8 left-8 flex items-center gap-4 animate-fade-in-up">
+<div class="w-16 h-16 border-2 border-primary-fixed rounded overflow-hidden shadow-[0_0_15px_rgba(214,227,255,0.4)] relative">
+<img class="w-full h-full object-cover" data-alt="A close-up passport-style photo of a construction worker wearing a yellow hardhat. The photo has a slight blue-ish tech tint over it." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAPMuDkiiWMHqEyeeiARcIls67HqFuFoPDOpoNXlT0TsfxJDD8tag81dxOeBm4F0n-9gv2BEBJs5o3x3SWTvh9LFna13MtI_7Drsng933lEi8HJqEDGPWbOro8zN5L3DNzoazEfHFP17OtPO3UC2jzfurV2u-93Cz_0JD5fb3V1hnn9hjXWsiZOTjGaPuKa9XTEebdXa_BPG4BsxRJiPougzKl2PbBrkpd5bYk6-0vQTrjkv0C_LYx53w"/>
+<div class="absolute inset-0 border border-primary-fixed animate-ping opacity-50"></div>
+</div>
+<div class="bg-surface-container-lowest/90 backdrop-blur border border-outline-variant rounded p-3 shadow-lg">
+<p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Last Recognized</p>
+<p class="font-headline-md text-headline-md text-on-surface m-0 leading-none">James Holden</p>
+<p class="font-body-md text-body-md text-surface-tint mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                                        Authorized • 2 mins ago
+                                    </p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Info Panel Column -->
+<div class="w-full lg:w-80 flex flex-col gap-gutter">
+<!-- Stream Stats -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-sm shadow-sm">
+<h4 class="font-label-xl text-label-xl text-on-surface border-b border-outline-variant pb-2 mb-3">Stream Diagnostics</h4>
+<div class="space-y-3">
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Resolution</span>
+<span class="font-body-md text-body-md text-on-surface font-mono">1080p</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Framerate</span>
+<span class="font-body-md text-body-md text-on-surface font-mono">30 FPS</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Bitrate</span>
+<span class="font-body-md text-body-md text-on-surface font-mono">4.2 Mbps</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Latency</span>
+<span class="font-body-md text-body-md text-primary font-mono font-bold">120ms</span>
+</div>
+</div>
+</div>
+<!-- Recent Activity List -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-sm shadow-sm flex-1">
+<div class="flex justify-between items-center border-b border-outline-variant pb-2 mb-3">
+<h4 class="font-label-xl text-label-xl text-on-surface">Recent Scans</h4>
+<a class="font-label-md text-label-md text-surface-tint hover:underline" href="#">View All</a>
+</div>
+<div class="space-y-4">
+<!-- Activity Item 1 -->
+<div class="flex gap-3 items-start">
+<img class="w-10 h-10 rounded border border-outline-variant object-cover" data-alt="Small thumbnail of a female construction worker wearing safety glasses." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCc9pxjaKJT7wOwwxpCd9bSmg2UJTLMgZMWFTaQcYq_NcFxMfZEo_Sp59pTTZgiRvHFLaGTGvSdfFOjjLrobqzNYUg8Vos0_LXu13W1Xw726UMZzryrn5C4AqCoBEX913OG6Se9inm4hPQfLPQJPilo0Dbsuycw6kNaDkgL5AMEWfI8v-cTjZp6koOaaZCBVcUfw2cdEP0uuVgtHs9NxoHFA_xKmEg_ZsANSog6MyAlkpctGhrcOvG82g"/>
+<div>
+<p class="font-label-xl text-label-xl text-on-surface m-0">Naomi Nagata</p>
+<p class="font-label-md text-label-md text-surface-tint">IN • 14:15:22</p>
+</div>
+</div>
+<!-- Activity Item 2 -->
+<div class="flex gap-3 items-start">
+<img class="w-10 h-10 rounded border border-outline-variant object-cover" data-alt="Small thumbnail of a male construction worker with a beard, wearing a hardhat." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCdkzU3PkeAHrYjvjMDAFpb_R7wVlAwP7Hx5kTaQQ1on8x_gJE2aeFdDkj5fsK1rjCMw9ad0kpqOtb3hanK-ptumpvuWtPXrPaDbngQC859jPfQvUogfMhjJMuR9M8xoR7hm5S9UMyo2zC2lamnUNWhMQilrNEei1RpVtmaSOOvHCnivXTZQVxmr6HDjkGLZFyfoMc-FoXMuc2LDMt3jyADQAxkVKRO2vbSd15jvWfpR4Pa5IWtWwVtsw"/>
+<div>
+<p class="font-label-xl text-label-xl text-on-surface m-0">Amos Burton</p>
+<p class="font-label-md text-label-md text-surface-tint">IN • 14:02:10</p>
+</div>
+</div>
+<!-- Activity Item 3 -->
+<div class="flex gap-3 items-start opacity-60">
+<div class="w-10 h-10 rounded border border-outline-variant bg-surface-container flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">person_off</span>
+</div>
+<div>
+<p class="font-label-xl text-label-xl text-error m-0">Unrecognized Face</p>
+<p class="font-label-md text-label-md text-surface-tint">DENIED • 13:45:00</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden bg-surface dark:bg-inverse-surface fixed bottom-0 w-full z-50 border-t border-outline-variant dark:border-on-surface-variant shadow-lg fixed bottom-0 left-0 w-full flex justify-around items-center px-4 py-2 pb-safe">
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-variant tap-highlight-none transition-transform duration-100 p-2 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">home</span>
+<span class="font-label-md text-label-md mt-1">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-4 py-1 active:bg-surface-variant tap-highlight-none transition-transform duration-100" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">videocam</span> <!-- Replaced history with videocam for context -->
+<span class="font-label-md text-label-md mt-1 font-bold">Monitor</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-variant tap-highlight-none transition-transform duration-100 p-2 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">groups</span> <!-- Replaced payslip for context -->
+<span class="font-label-md text-label-md mt-1">Crew</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-variant tap-highlight-none transition-transform duration-100 p-2 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">person</span>
+<span class="font-label-md text-label-md mt-1">Profile</span>
+</a>
+</nav>
+<script>
+        // Simple clock update for the camera feed
+        function updateTime() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('en-US', { hour12: false });
+            const clockEl = document.getElementById('live-time');
+            if(clockEl) {
+                clockEl.textContent = timeString + ' REC';
+            }
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+    </script>
+</body></html>

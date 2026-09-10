@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+@theme {
+  --color-on-surface-variant: #44474d;
+  --color-surface-tint: #515f78;
+  --color-on-secondary: #ffffff;
+  --color-on-tertiary-container: #b87500;
+  --color-on-tertiary: #ffffff;
+  --color-surface-bright: #f7f9fb;
+  --color-inverse-surface: #2d3133;
+  --color-surface-dim: #d8dadc;
+  --color-outline-variant: #c5c6cd;
+  --color-secondary-fixed-dim: #bcc7dd;
+  --color-outline: #75777e;
+  --color-on-primary-fixed: #0d1c32;
+  --color-surface-variant: #e0e3e5;
+  --color-on-secondary-container: #586377;
+  --color-on-surface: #191c1e;
+  --color-primary-fixed: #d6e3ff;
+  --color-tertiary-fixed: #ffddb8;
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-on-primary: #ffffff;
+  --color-surface-container-low: #f2f4f6;
+  --color-surface-container-highest: #e0e3e5;
+  --color-error-container: #ffdad6;
+  --color-surface: #f7f9fb;
+  --color-inverse-on-surface: #eff1f3;
+  --color-on-tertiary-fixed: #2a1700;
+  --color-primary-fixed-dim: #b9c7e4;
+  --color-inverse-primary: #b9c7e4;
+  --color-secondary-container: #d5e0f7;
+  --color-background: #f7f9fb;
+  --color-on-secondary-fixed-variant: #3c475a;
+  --color-primary: #000000;
+  --color-on-tertiary-fixed-variant: #653e00;
+  --color-on-primary-fixed-variant: #39475f;
+  --color-on-error-container: #93000a;
+  --color-tertiary: #000000;
+  --color-surface-container-high: #e6e8ea;
+  --color-surface-container-lowest: #ffffff;
+  --color-tertiary-container: #2a1700;
+  --color-surface-container: #eceef0;
+  --color-on-primary-container: #76849f;
+  --color-secondary-fixed: #d8e3fa;
+  --color-on-background: #191c1e;
+  --color-secondary: #545f72;
+  --color-primary-container: #0d1c32;
+  --color-tertiary-fixed-dim: #ffb95f;
+  --color-on-secondary-fixed: #111c2c;
+
+  --radius-DEFAULT: 0.25rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-full: 9999px;
+
+  --spacing-touch-target: 48px;
+  --spacing-margin-desktop: 48px;
+  --spacing-margin-mobile: 16px;
+  --spacing-gutter: 24px;
+
+  --font-family-sans: 'Inter', sans-serif;
+  --font-family-headline-md: 'Inter', sans-serif;
+  --font-family-headline-lg: 'Inter', sans-serif;
+  --font-family-headline-lg-mobile: 'Inter', sans-serif;
+  --font-family-label-md: 'Inter', sans-serif;
+  --font-family-body-lg: 'Inter', sans-serif;
+  --font-family-body-md: 'Inter', sans-serif;
+  --font-family-label-xl: 'Inter', sans-serif;
+  --font-family-display-lg: 'Inter', sans-serif;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-on-background);
+}
+
+.custom-shadow {
+  box-shadow: 0 8px 24px -4px rgba(13, 28, 50, 0.12);
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.material-symbols-outlined.fill {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}

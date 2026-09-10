@@ -1,0 +1,106 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Digital Identity, AI-Driven PPE Compliance, and Integrated Payroll Systems for Construction Site Workforce Management: A Literature Review\\}
+
+\author{\IEEEauthorblockN{1\textsuperscript{st} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{2\textsuperscript{nd} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+}
+
+\maketitle
+
+\begin{abstract}
+Construction sites present a demanding environment for automated workforce management. Historically, systems have attempted to combine worker identification (facial recognition) with safety monitoring (PPE detection) using a single camera feed. However, mandatory PPE — such as hard hats and masks — inherently confounds biometric identification, leading to unreliable attendance records. This review synthesizes recent literature advocating for a decoupled architecture: utilizing highly reliable Digital Identity systems (Virtual Kiosks, QR, RFID) for attendance logging, while dedicating computer vision resources exclusively to real-time safety compliance (PPE detection). Furthermore, the literature highlights a significant gap in downstream integration; attendance and safety logs rarely trigger automated financial workflows. By decoupling identity verification from safety monitoring, systems can achieve near 100\% attendance accuracy while simultaneously integrating directly into cloud-based payroll platforms, closing the loop on construction workforce management.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Digital Identity, Kiosk Systems, PPE detection, YOLOv8, construction safety, automated attendance, payroll integration, decoupling.
+\end{IEEEkeywords}
+
+\section{Introduction}
+The construction industry continues to rely on manual or partially automated methods for two operationally critical functions: worker attendance verification and safety (PPE) compliance monitoring. Both functions are required at the point of site entry, yet the technical literature reveals that attempting to solve both simultaneously using a single biometric modality (facial recognition) often yields suboptimal results in real-world environments.
+
+This review surveys recent peer-reviewed work across four key areas: (1) AI-driven PPE and safety compliance detection \cite{wang2020, mishra2026, thakur2023, biswas2024, ijarcce2025, hayat2022, liang2022, vukicevic2024}; (2) robust digital identity and facial recognition systems for construction attendance \cite{ashritha2022, khadepatil2022, gururaj2021, pawar2023, kapil2020}; (3) the architectural benefits of decoupling attendance tracking from CCTV safety monitoring; and (4) cloud/payroll-integrated site management platforms \cite{bao2023, pavelko2023, gado2024, manu2024, ye2022}. The review positions the integration of these decoupled but complementary systems as the most viable path toward fully automated site management.
+
+\section{AI-Driven PPE and Safety Compliance Detection}
+Monitoring PPE compliance — particularly hard hats and high-visibility vests — is essential, as non-compliance remains a leading contributor to construction-site fatalities. Computer vision offers a scalable alternative to manual safety audits. Early joint approaches by Wang \textit{et al.} \cite{wang2020} combined face and helmet detection. More recently, Thakur \textit{et al.} \cite{thakur2023} embedded a self-attention mechanism into a YOLOv8-s network specifically to improve detection robustness under occlusion, reporting 99.5\% accuracy for combined helmet-and-vest detection. Their work, alongside real-time implementations \cite{ijarcce2025}, proves that modern single-stage object detectors can reliably identify safety gear even when workers are partially obscured.
+
+Similarly, Biswas and Hoque \cite{biswas2024} report a YOLOv8-based model achieving 95.4\% mAP for face coverings and 83.8\% mAP for hard hats under limited-lighting conditions. Other lightweight solutions like Hayat and Morgado-Dias \cite{hayat2022} and Liang and Seo \cite{liang2022} demonstrate that high-framerate detection is feasible on edge devices. Vukićević \textit{et al.} \cite{vukicevic2024} provide a comprehensive systematic review of computer vision-based PPE compliance systems, concluding that attention mechanisms and multi-scale feature fusion have largely solved the challenge of occlusion-robust PPE detection.
+
+\begin{table}[htbp]
+\caption{Comparison of PPE Detection Methods}
+\begin{center}
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Study} & \textbf{Model} & \textbf{Performance} & \textbf{Contribution} \\
+\hline
+Thakur \cite{thakur2023} & YOLOv8-s+Attn & $\sim$99.5\% & Occlusion robust \\
+\hline
+Biswas \cite{biswas2024} & YOLOv8 & 95.4\% Mask & Low-light \\
+\hline
+Hayat \cite{hayat2022} & YOLOv5x+GIoU & 92.4\% Prec & Small object \\
+\hline
+\end{tabular}
+\label{tab1}
+\end{center}
+\end{table}
+
+\section{Digital Identity and Face Recognition Systems for Attendance}
+There is a rich body of work exploring automated attendance. Many systems attempt facial recognition \cite{ashritha2022}, sometimes incorporating liveness detection and geofencing \cite{pawar2023}, or deep networks like InnovFaceNet \cite{gururaj2021}. Khadepatil \textit{et al.} \cite{khadepatil2022} outline general frameworks for automated attendance systems.
+
+However, while computer vision excels at safety monitoring, relying on it for precise worker identification introduces significant error rates on construction sites. The very equipment required for safety (helmets, masks) occludes the facial features required for biometrics, as explored by surveillance studies \cite{kapil2020}. 
+
+Consequently, robust digital identity systems — such as Virtual Kiosks using unique PINs, RFID cards, or QR codes — offer a far more reliable alternative for attendance tracking. In an industrial setting, a physical or digital token ensures 100\% accuracy without the false-negative rates associated with dust-covered or shadowed faces.
+
+\section{Decoupling Attendance from Safety Monitoring}
+The architectural shift towards decoupling is driven by differing hardware and latency constraints. Running heavy biometric models over CCTV introduces significant latency during peak shift-change periods \cite{kapil2020}. Mishra \textit{et al.} \cite{mishra2026} proposed integrated frameworks combining YOLOv8 and facial recognition, but the limitations of joint processing underscore the practical difficulties of deploying unified biometric/safety pipelines in the field.
+
+By offloading attendance to a low-latency Kiosk interface, and allowing the CCTV pipeline to run asynchronously strictly for PPE compliance, overall system stability is drastically improved.
+
+\section{Cloud-Integrated Site Management and Payroll Systems}
+Distinct from the detection literature, a body of work addresses the digitization of construction site administration. Bao \textit{et al.} \cite{bao2023} present a software management solution for digitalization where site functions communicate through standardized APIs. Broader impacts of AI on project management and risk mitigation are echoed by Gado \cite{gado2024} and Manu \cite{manu2024}. Furthermore, the use of blockchain and smart contracts can streamline industry workflows \cite{ye2022}.
+
+Pavelko \textit{et al.} \cite{pavelko2023} examine the automation of payroll accounting, identifying reconciliation delay as a persistent operational bottleneck. Their analysis shows manual payroll reconciliation introduces a 5–14 day delay, leading to worker dissatisfaction. This finding directly motivates the real-time payroll integration proposed in modernized site architectures.
+
+\section{Conclusion}
+The reviewed literature establishes that relying on CCTV for both worker identification and safety compliance is fraught with practical challenges due to PPE occlusion. A decoupled software architecture — utilizing Virtual Kiosks for reliable digital attendance and dedicating AI resources to asynchronous PPE detection — provides a far more robust solution. Crucially, this approach generates the clean, 100\%-accurate data logs required to fully automate downstream financial processes, bridging the final gap between site operations and instant payroll execution.
+
+\begin{thebibliography}{00}
+\bibitem{wang2020} H. Wang, Z. Hu, Y. Guo, Y. Ou, and Z. Yang, ``A Combined Method for Face and Helmet Detection in Intelligent Construction Site Application,'' in \textit{Recent Featured Applications of Artificial Intelligence Methods (LSMS/ICSEE 2020 Workshops)}, Commun. Comput. Inf. Sci., vol. 1303, Springer, Singapore, 2020, pp. 401--415.
+\bibitem{mishra2026} P. Mishra, P. Shevatekar, H. Nawghare, O. Satao, A. Bachute, and N. Kapre, ``Computer Vision-based Integrated Framework for Industrial Worker Safety Compliance and Automated Attendance Monitoring using YOLOv8 and Facial Recognition,'' \textit{Int. J. Comput. Appl.}, vol. 187, no. 100, pp. 40--46, Apr. 2026.
+\bibitem{thakur2023} D. Thakur, P. Pal, A. Jadhav, N. Kable, B. V, and S. Deshpande, ``YOLOv8-Based Helmet and Vest Detection System for Safety Assessment,'' in \textit{Proc. IEEE NMITCON}, Sept. 2023, pp. 1--10.
+\bibitem{biswas2024} M. Biswas and R. Hoque, ``Construction Site Risk Reduction via YOLOv8: Detection of PPE, Masks, and Heavy Vehicles,'' in \textit{Proc. IEEE COMPAS}, Sept. 2024, pp. 1--6.
+\bibitem{ashritha2022} K. Ashritha and S. Bhukya, ``Automated Attendance System Using Face Recognition,'' \textit{Int. J. Res. Appl. Sci. Eng. Technol. (IJRASET)}, vol. 10, no. 6, pp. 2096--2099, June 2022.
+\bibitem{khadepatil2022} A. Khadepatil, O. Balge, A. Kilawat, H. Goulkar, and T. Khan, ``Auto Attendance System,'' \textit{Int. J. Res. Appl. Sci. Eng. Technol. (IJRASET)}, vol. 10, no. 12, pp. 1284--1288, Dec. 2022.
+\bibitem{gururaj2021} N. Gururaj and K. Batra, ``InnovFaceNet: Deep Face Recognition for Industrial Environments,'' \textit{J. Comput. Vis. Image Syst.}, vol. 6, no. 1, pp. 1--4, Jan. 2021.
+\bibitem{pawar2023} A. Pawar, R. Hiwanj, P. Koparde, D. Chikmurge, and S. Barve, ``Automated Employee Attendance Monitoring Using Liveness Face Recognition and Geofencing in Real Time,'' in \textit{Proc. IEEE 5th Int. Conf. Adv. Electron. Comput. Commun. (ICAECC)}, 2023, pp. 1--6.
+\bibitem{kapil2020} D. Kapil, A. Kamtam, A. Kedare, and S. Bharne, ``Deep Learning-Based Surveillance System using Face Recognition,'' \textit{ITM Web Conf.}, vol. 32, p. 03011, Jan. 2020.
+\bibitem{ijarcce2025} ``Real-Time Personal Protective Equipment (PPE) Detection using YOLOv8 and Computer Vision for Industrial Safety Compliance,'' \textit{Int. J. Adv. Res. Comput. Commun. Eng. (IJARCCE)}, vol. 14, no. 8, Aug. 2025.
+\bibitem{hayat2022} A. Hayat and F. Morgado-Dias, ``Deep Learning-Based Automatic Safety Helmet Detection System for Construction Safety,'' \textit{Appl. Sci.}, vol. 12, no. 16, p. 8268, Aug. 2022.
+\bibitem{liang2022} H. Liang and S. Seo, ``Automatic Detection of Construction Workers' Helmet Wear Based on Lightweight Deep Learning,'' \textit{Appl. Sci.}, vol. 12, no. 20, p. 10369, Oct. 2022.
+\bibitem{bao2023} X. Bao et al., ``A Software Management System Solution for Digitalization and Automation in Construction Sector,'' in \textit{Proc. IEEE HNICEM}, Nov. 2023.
+\bibitem{pavelko2023} O. V. Pavelko, V. Blyshchyk, and A. Savchuk, ``Payroll Accounting of Construction Companies: Aspects of Organization and Automation in Competitiveness Potential Management,'' \textit{Vìsnik Nacìonalʹnogo unìversitetu vodnogo gospodarstva ta prirodokoristuvannâ}, vol. 1, no. 101, pp. 98--115, June 2023.
+\bibitem{gado2024} N. G. Gado, ``AI Revolutionizes Construction Management: Building Smarter, Safer, and Efficiently Addressing Industry Challenges,'' \textit{Eng. Res. J.}, Sept. 2024.
+\bibitem{manu2024} B. A. Manu, ``Leveraging Artificial Intelligence for Optimized Project Management and Risk Mitigation in Construction Industry,'' \textit{World J. Adv. Res. Rev.}, vol. 24, no. 3, pp. 2924--2940, Dec. 2024.
+\bibitem{vukicevic2024} A. M. Vukićević, M. Petrović, P. Milošević, A. Peulić, K. Jovanović, and A. Novaković, ``A Systematic Review of Computer Vision-Based Personal Protective Equipment Compliance in Industry Practice,'' \textit{Artif. Intell. Rev.}, vol. 57, no. 12, Oct. 2024.
+\bibitem{ye2022} X. Ye, N. Zeng, and M. König, ``Systematic Literature Review on Smart Contracts in the Construction Industry: Potentials, Benefits, and Challenges,'' \textit{Front. Eng. Manag.}, vol. 9, no. 2, pp. 196--213, May 2022.
+\end{thebibliography}
+\end{document}

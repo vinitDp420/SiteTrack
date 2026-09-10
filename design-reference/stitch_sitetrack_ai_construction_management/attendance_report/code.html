@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Attendance Report - SiteTrack</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-surface-variant": "#44474d",
+                    "surface-tint": "#515f78",
+                    "on-secondary": "#ffffff",
+                    "on-tertiary-container": "#b87500",
+                    "on-tertiary": "#ffffff",
+                    "surface-bright": "#f7f9fb",
+                    "inverse-surface": "#2d3133",
+                    "surface-dim": "#d8dadc",
+                    "outline-variant": "#c5c6cd",
+                    "secondary-fixed-dim": "#bcc7dd",
+                    "outline": "#75777e",
+                    "on-primary-fixed": "#0d1c32",
+                    "surface-variant": "#e0e3e5",
+                    "on-secondary-container": "#586377",
+                    "on-surface": "#191c1e",
+                    "primary-fixed": "#d6e3ff",
+                    "tertiary-fixed": "#ffddb8",
+                    "error": "#ba1a1a",
+                    "on-error": "#ffffff",
+                    "on-primary": "#ffffff",
+                    "surface-container-low": "#f2f4f6",
+                    "surface-container-highest": "#e0e3e5",
+                    "error-container": "#ffdad6",
+                    "surface": "#f7f9fb",
+                    "inverse-on-surface": "#eff1f3",
+                    "on-tertiary-fixed": "#2a1700",
+                    "primary-fixed-dim": "#b9c7e4",
+                    "inverse-primary": "#b9c7e4",
+                    "secondary-container": "#d5e0f7",
+                    "background": "#f7f9fb",
+                    "on-secondary-fixed-variant": "#3c475a",
+                    "primary": "#000000",
+                    "on-tertiary-fixed-variant": "#653e00",
+                    "on-primary-fixed-variant": "#39475f",
+                    "on-error-container": "#93000a",
+                    "tertiary": "#000000",
+                    "surface-container-high": "#e6e8ea",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary-container": "#2a1700",
+                    "surface-container": "#eceef0",
+                    "on-primary-container": "#76849f",
+                    "secondary-fixed": "#d8e3fa",
+                    "on-background": "#191c1e",
+                    "secondary": "#545f72",
+                    "primary-container": "#0d1c32",
+                    "tertiary-fixed-dim": "#ffb95f",
+                    "on-secondary-fixed": "#111c2c"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sm": "12px",
+                    "lg": "40px",
+                    "xs": "4px",
+                    "base": "8px",
+                    "md": "24px",
+                    "touch-target": "48px",
+                    "xl": "64px",
+                    "margin-desktop": "48px",
+                    "margin-mobile": "16px",
+                    "gutter": "24px"
+            },
+            "fontFamily": {
+                    "headline-md": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "label-md": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "body-md": ["Inter"],
+                    "label-xl": ["Inter"],
+                    "display-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "700"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "label-xl": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                    "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            -webkit-font-feature-settings: 'liga';
+            -webkit-font-smoothing: antialiased;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex">
+<!-- SideNavBar (Desktop) -->
+<aside class="hidden md:flex flex-col h-screen w-64 fixed left-0 top-0 bg-surface-container-low border-r border-outline-variant p-sm z-40">
+<div class="mb-md">
+<h1 class="font-headline-md text-headline-md font-bold text-primary">SiteTrack</h1>
+<div class="mt-base p-base bg-surface rounded-lg border border-outline-variant flex items-center gap-base">
+<img alt="Site Manager" class="w-10 h-10 rounded-full object-cover" data-alt="A small, professional avatar photo of a site manager, outdoors with a high-visibility vest and hard hat, bright lighting, realistic style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB0j2lLaIGaNOfIc8YGHILs2KsWaltlNYouvAsGph2ZNf8Fr6HcIqe5-zcseNZeA6E7y2nzeJQ2mttpkFdawEr2ZUG3FEwvTJb8Pu0OPh5eNLDqu_vad_MNkJV_qjKqhYBVS2ek309LK35ByybZTbzD2RqvawBYSXSyWRzY_JDJJKqpC0ibIhtvnqztEfdMe4JRc9fmUAU5_Wauyf_gbPInaVbtCMsY_sTnYKof_wQCbzp-hrCcoWT0hA"/>
+<div>
+<div class="font-label-md text-label-md text-on-surface">Project Alpha</div>
+<div class="text-xs text-on-surface-variant">Site ID: 4092-B</div>
+</div>
+</div>
+</div>
+<nav class="flex-1 space-y-xs">
+<a class="flex items-center gap-sm px-base py-sm rounded-lg text-on-surface-variant hover:bg-surface-variant transition-all font-label-xl text-label-xl" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                Dashboard
+            </a>
+<a class="flex items-center gap-sm px-base py-sm rounded-lg text-on-surface-variant hover:bg-surface-variant transition-all font-label-xl text-label-xl" href="#">
+<span class="material-symbols-outlined" data-icon="videocam">videocam</span>
+                Monitoring
+            </a>
+<a class="flex items-center gap-sm px-base py-sm rounded-lg text-on-surface-variant hover:bg-surface-variant transition-all font-label-xl text-label-xl" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+                Workers
+            </a>
+<a class="flex items-center gap-sm px-base py-sm bg-secondary-container text-on-secondary-container font-bold rounded-lg font-label-xl text-label-xl active:scale-95 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="event_available">event_available</span>
+                Attendance
+            </a>
+<a class="flex items-center gap-sm px-base py-sm rounded-lg text-on-surface-variant hover:bg-surface-variant transition-all font-label-xl text-label-xl" href="#">
+<span class="material-symbols-outlined" data-icon="payments">payments</span>
+                Payroll
+            </a>
+<a class="flex items-center gap-sm px-base py-sm rounded-lg text-on-surface-variant hover:bg-surface-variant transition-all font-label-xl text-label-xl" href="#">
+<span class="material-symbols-outlined" data-icon="warning">warning</span>
+                Fraud Alerts
+            </a>
+</nav>
+<div class="mt-auto space-y-xs pt-base border-t border-outline-variant">
+<button class="w-full flex items-center justify-center gap-xs bg-tertiary-fixed-dim text-on-tertiary-container font-label-xl text-label-xl py-sm rounded-lg h-touch-target font-bold active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="schedule">schedule</span>
+                Clock In
+            </button>
+<a class="flex items-center gap-sm px-base py-sm rounded-lg text-on-surface-variant hover:bg-surface-variant transition-all font-label-xl text-label-xl" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+                Support
+            </a>
+<a class="flex items-center gap-sm px-base py-sm rounded-lg text-on-surface-variant hover:bg-surface-variant transition-all font-label-xl text-label-xl" href="#">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+                Logout
+            </a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-64 flex flex-col min-h-screen">
+<!-- TopAppBar (Mobile) -->
+<header class="md:hidden flex justify-between items-center px-margin-mobile py-4 w-full bg-surface border-b border-outline-variant sticky top-0 z-40">
+<h1 class="font-headline-md text-headline-md font-bold text-primary tracking-tight">SiteTrack</h1>
+<div class="flex gap-sm">
+<span class="material-symbols-outlined cursor-pointer active:opacity-80 text-on-surface-variant" data-icon="notifications">notifications</span>
+<span class="material-symbols-outlined cursor-pointer active:opacity-80 text-on-surface-variant" data-icon="settings">settings</span>
+<img alt="Administrator profile" class="w-8 h-8 rounded-full object-cover" data-alt="A small, professional avatar photo of a site manager, outdoors with a high-visibility vest and hard hat, bright lighting, realistic style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCzC_Y2odwn4JaOziOiW0wBo1Wmbq4Gr3VpI1CGjv-3vZdkI8knZGUdmjeV_nF0r93FBAEkK99WCqlQwPF0DxZC0r-WI78oA_WItvaLeax4T4MtJU7nbIrZCnTYm6jhhO5_wOtJOzGLtnengiqyidc0b2JO8pA1WVrR65D9fOsbwJPAcJmkF4-Nu9--JjyYjZvUAw8o2m4hor_eSpPYc-PspMGynICQ8HUHa8z_H3-ecbxm91qCCL7B0g"/>
+</div>
+</header>
+<!-- TopAppBar (Desktop - Simplified for Canvas space) -->
+<header class="hidden md:flex justify-between items-center px-margin-desktop py-4 w-full bg-surface sticky top-0 z-30">
+<div class="flex-1"></div>
+<div class="flex gap-md items-center">
+<span class="material-symbols-outlined cursor-pointer active:opacity-80 text-on-surface-variant hover:bg-surface-container-high p-2 rounded-full transition-colors" data-icon="notifications">notifications</span>
+<span class="material-symbols-outlined cursor-pointer active:opacity-80 text-on-surface-variant hover:bg-surface-container-high p-2 rounded-full transition-colors" data-icon="settings">settings</span>
+<img alt="Administrator profile" class="w-10 h-10 rounded-full object-cover" data-alt="A small, professional avatar photo of a site manager, outdoors with a high-visibility vest and hard hat, bright lighting, realistic style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0a1hqMMSAy_rfRGUEa7YHO0NYi4vVfpjXt3QYTlPYhA3CXIgPxMa-dEk6QpgoZTuhjPjC2VGb6Lkghy2dJucKvlp11gLzSAulVBQMkto3oA4M83K157kW8V2-QrUBbOkQuikNqAo1uU8U-y1BEmxOnRvUs1V0x1Dngm1JKFCdd2BWRV3n1ByelhzaHw-AsP3ssQcGvcxMeHuMpC54VEfahGADxiVs7dLmPVfl-KMn0Dreb47PXeKnEQ"/>
+</div>
+</header>
+<!-- Canvas -->
+<div class="p-margin-mobile md:p-margin-desktop flex-1 pb-32 md:pb-margin-desktop max-w-7xl w-full mx-auto">
+<div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-md mb-lg">
+<div>
+<h2 class="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-surface">Attendance Report</h2>
+<p class="text-on-surface-variant mt-xs">Project Alpha • Daily workforce tracking</p>
+</div>
+<div class="flex flex-wrap gap-sm">
+<button class="flex items-center gap-xs px-md py-sm bg-surface border-2 border-outline-variant text-on-surface font-label-xl text-label-xl rounded-lg h-touch-target hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined" data-icon="picture_as_pdf">picture_as_pdf</span>
+                        Export PDF
+                    </button>
+<button class="flex items-center gap-xs px-md py-sm bg-primary-container text-on-primary-container font-label-xl text-label-xl rounded-lg h-touch-target hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined" data-icon="table_view">table_view</span>
+                        Export Excel
+                    </button>
+</div>
+</div>
+<!-- Filter Controls -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md mb-md shadow-sm">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-gutter">
+<div class="flex flex-col gap-xs">
+<label class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Date Range</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline" data-icon="calendar_month">calendar_month</span>
+<input class="w-full pl-xl pr-sm py-sm bg-surface border border-outline-variant rounded-lg text-on-surface focus:border-primary focus:ring-1 focus:ring-primary h-touch-target outline-none transition-all" type="text" value="Oct 12, 2023 - Oct 18, 2023"/>
+</div>
+</div>
+<div class="flex flex-col gap-xs">
+<label class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Trade / Role</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline" data-icon="handyman">handyman</span>
+<select class="w-full pl-xl pr-sm py-sm bg-surface border border-outline-variant rounded-lg text-on-surface focus:border-primary focus:ring-1 focus:ring-primary h-touch-target outline-none appearance-none transition-all">
+<option>All Trades</option>
+<option>Carpenters</option>
+<option>Electricians</option>
+<option>Plumbers</option>
+</select>
+<span class="material-symbols-outlined absolute right-sm top-1/2 -translate-y-1/2 text-outline pointer-events-none" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<div class="flex flex-col gap-xs">
+<label class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Search Worker</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline" data-icon="search">search</span>
+<input class="w-full pl-xl pr-sm py-sm bg-surface border border-outline-variant rounded-lg text-on-surface focus:border-primary focus:ring-1 focus:ring-primary h-touch-target outline-none transition-all" placeholder="Name or ID" type="text"/>
+</div>
+</div>
+</div>
+</div>
+<!-- Data Table (Bento Style Grid on Desktop) -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden shadow-sm">
+<!-- Desktop Table Header -->
+<div class="hidden md:grid grid-cols-12 gap-sm p-sm bg-surface-container-low border-b border-outline-variant font-label-md text-label-md text-on-surface-variant uppercase tracking-wider items-center">
+<div class="col-span-3 pl-sm">Worker</div>
+<div class="col-span-2 text-center">Date</div>
+<div class="col-span-2 text-center">Entry / Exit</div>
+<div class="col-span-2 text-center">Total Hours</div>
+<div class="col-span-2 text-center">Status</div>
+<div class="col-span-1 text-center">Actions</div>
+</div>
+<!-- List Items -->
+<div class="divide-y divide-outline-variant">
+<!-- Item 1 (On Time) -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-sm p-md md:p-sm items-center min-h-[64px] hover:bg-surface-bright transition-colors">
+<div class="col-span-1 md:col-span-3 flex items-center gap-sm">
+<img alt="Worker" class="w-12 h-12 rounded-full object-cover border border-outline-variant" data-alt="Close-up portrait of a male construction worker wearing a yellow hard hat and safety glasses, bright daylight, realistic photography." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAgpLDlCUZPhgvwuiyzJWnrFybAIe1pEf53ET6YFwcJ_IOHKGbWDwArsV1Tu7KDNBozY2stAFy1BlZn8AwijpfbUmjxixyKxiq3dJl9VsLEsjzMoa-FUQ-3I62AWTr3EJV4Bu-HaMwWNs0BbGnUpSX2EtKwO9OMUsZAOkmF1OmLH09dTKh1gIS5p3wmStUfz0kXpeePmGYmYUpaO2z_CQPiit5B8Uo4aHGee96ewpF6ogvtjh6YElBKA"/>
+<div>
+<div class="font-headline-md text-body-md font-bold text-on-surface">John Ramirez</div>
+<div class="font-label-md text-label-md text-on-surface-variant">ID: W-8201 • Electrician</div>
+</div>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Date</span>
+<span class="text-on-surface">Oct 18, 2023</span>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Time</span>
+<div class="text-right md:text-center">
+<div class="text-on-surface font-bold">06:55 AM</div>
+<div class="text-on-surface-variant text-sm">04:30 PM</div>
+</div>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Hours</span>
+<span class="text-on-surface font-bold text-lg">9.5h</span>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Status</span>
+<span class="inline-flex items-center gap-xs px-3 py-1 bg-[#d6e3ff] text-[#0d1c32] rounded-full font-label-xl text-label-xl">
+<span class="material-symbols-outlined text-sm" data-icon="check_circle">check_circle</span>
+                                On-Time
+                            </span>
+</div>
+<div class="col-span-1 md:col-span-1 flex justify-end md:justify-center mt-sm md:mt-0">
+<button class="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-variant rounded-full transition-colors h-touch-target w-touch-target flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Item 2 (Late) -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-sm p-md md:p-sm items-center min-h-[64px] hover:bg-surface-bright transition-colors">
+<div class="col-span-1 md:col-span-3 flex items-center gap-sm">
+<img alt="Worker" class="w-12 h-12 rounded-full object-cover border border-outline-variant" data-alt="Close-up portrait of a female construction worker wearing a white hard hat, bright daylight, realistic photography." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWPGZ5FT3kQ3aORnuEYh3ukk9Pe092zRiSeXATw1KKV91pLRtX5B9Cw1SyTLGSNtBFJykaTwTeIn90Vfrg4x4kR_QfJHeIXX7yt5bf712_XaLrZJ_RoO3fBfhxQwZF0a_4_b5FFQumDuc4k94srdhHAiJpQM7ikju70KGlzEvW_mAevV8JH3UQnVSS6Zprs8Z6UiRFcYjLv9gEvCtaXZ3cXREV1xi1fKk22ES_Q7JlsAgSK0rZMUandA"/>
+<div>
+<div class="font-headline-md text-body-md font-bold text-on-surface">Sarah Jenkins</div>
+<div class="font-label-md text-label-md text-on-surface-variant">ID: W-3312 • Carpenter</div>
+</div>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Date</span>
+<span class="text-on-surface">Oct 18, 2023</span>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Time</span>
+<div class="text-right md:text-center">
+<div class="text-error font-bold">07:45 AM</div>
+<div class="text-on-surface-variant text-sm">05:00 PM</div>
+</div>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Hours</span>
+<span class="text-on-surface font-bold text-lg">8.25h</span>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Status</span>
+<span class="inline-flex items-center gap-xs px-3 py-1 bg-tertiary-fixed-dim text-on-tertiary-container rounded-full font-label-xl text-label-xl">
+<span class="material-symbols-outlined text-sm" data-icon="schedule">schedule</span>
+                                Late
+                            </span>
+</div>
+<div class="col-span-1 md:col-span-1 flex justify-end md:justify-center mt-sm md:mt-0">
+<button class="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-variant rounded-full transition-colors h-touch-target w-touch-target flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Item 3 (Early Leave) -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-sm p-md md:p-sm items-center min-h-[64px] hover:bg-surface-bright transition-colors">
+<div class="col-span-1 md:col-span-3 flex items-center gap-sm">
+<img alt="Worker" class="w-12 h-12 rounded-full object-cover border border-outline-variant" data-alt="Close-up portrait of a male construction worker wearing a blue hard hat, slightly dusty face, bright daylight, realistic photography." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDup-rJ6fF6G5Etif0ZutjIkgTRxUak96y7vN1VTHqs89BzcKjRrurr7bbuzXdlJFLHu8EtPQz87POssR2uYSUkGMvdMb31w3hJOlwyecYguM663OOAtijUKY04mkBiZBNW2Y__L0foMZFB69jOTDAm1TlY_yNfgTIZjVev7hL3vKt7dcRnanU3KpthLzWqPYmHJr9B2Prf0NOkYJyXs70OqVPGFvEZGpdBn-nL_yApsBH77c-A0OffvA"/>
+<div>
+<div class="font-headline-md text-body-md font-bold text-on-surface">David Chen</div>
+<div class="font-label-md text-label-md text-on-surface-variant">ID: W-5521 • Plumber</div>
+</div>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Date</span>
+<span class="text-on-surface">Oct 18, 2023</span>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Time</span>
+<div class="text-right md:text-center">
+<div class="text-on-surface font-bold">06:50 AM</div>
+<div class="text-error font-bold text-sm">01:15 PM</div>
+</div>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Hours</span>
+<span class="text-on-surface font-bold text-lg">6.4h</span>
+</div>
+<div class="col-span-1 md:col-span-2 flex justify-between md:justify-center items-center">
+<span class="md:hidden font-label-md text-label-md text-on-surface-variant uppercase">Status</span>
+<span class="inline-flex items-center gap-xs px-3 py-1 bg-surface-variant text-on-surface-variant rounded-full font-label-xl text-label-xl">
+<span class="material-symbols-outlined text-sm" data-icon="directions_run">directions_run</span>
+                                Early Leave
+                            </span>
+</div>
+<div class="col-span-1 md:col-span-1 flex justify-end md:justify-center mt-sm md:mt-0">
+<button class="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-variant rounded-full transition-colors h-touch-target w-touch-target flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Pagination (Simple) -->
+<div class="flex justify-between items-center mt-md p-sm">
+<span class="text-on-surface-variant font-label-md text-label-md">Showing 1-3 of 142 records</span>
+<div class="flex gap-xs">
+<button class="px-3 py-1 border border-outline-variant rounded bg-surface text-outline disabled:opacity-50" disabled="">Prev</button>
+<button class="px-3 py-1 border border-outline-variant rounded bg-primary-container text-on-primary-container font-bold">1</button>
+<button class="px-3 py-1 border border-outline-variant rounded bg-surface text-on-surface hover:bg-surface-variant">2</button>
+<button class="px-3 py-1 border border-outline-variant rounded bg-surface text-on-surface hover:bg-surface-variant">3</button>
+<button class="px-3 py-1 border border-outline-variant rounded bg-surface text-on-surface hover:bg-surface-variant">Next</button>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full flex justify-around items-center px-4 py-2 pb-safe bg-surface border-t border-outline-variant z-50">
+<a class="flex flex-col items-center justify-center text-on-surface-variant tap-highlight-none transition-transform duration-100 active:bg-surface-variant rounded-xl px-2 py-1" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-md text-label-md mt-1">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-4 py-1 tap-highlight-none transition-transform duration-100" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-label-md text-label-md mt-1">History</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant tap-highlight-none transition-transform duration-100 active:bg-surface-variant rounded-xl px-2 py-1" href="#">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+<span class="font-label-md text-label-md mt-1">Payslip</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant tap-highlight-none transition-transform duration-100 active:bg-surface-variant rounded-xl px-2 py-1" href="#">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-label-md text-label-md mt-1">Profile</span>
+</a>
+</nav>
+</body></html>
