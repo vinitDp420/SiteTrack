@@ -1,7 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useSession } from 'next-auth/react';
+
+let faceapi: any;
+if (typeof window !== 'undefined') {
+  faceapi = require('face-api.js');
+}
 
 interface WorkerProfile {
   id: string;
@@ -23,10 +28,25 @@ export default function WorkerHome() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [todayHours, setTodayHours] = useState('0.0');
   const [checkInTimeStr, setCheckInTimeStr] = useState('--:-- AM');
+  
+  // Face Recognition State
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     fetchWorkerStatus();
+    loadFaceModels();
   }, []);
+
+  const loadFaceModels = async () => {
+    try {
+      await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+      setModelsLoaded(true);
+    } catch (e) {
+      console.error('Error loading face models:', e);
+    }
+  };
 
   const fetchWorkerStatus = async () => {
     setLoading(true);
@@ -56,14 +76,46 @@ export default function WorkerHome() {
     setLoading(false);
   };
 
+  const executeClockIn = async () => {
+    setProcessing(true);
+    try {
+        const res = await fetch('/api/attendance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workerId: worker!.id,
+            projectId: worker!.projectId,
+            manualBackup: false,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setIsCheckedIn(true);
+          const checkIn = new Date(data.session.checkInTime);
+          setCheckInTimeStr(checkIn.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
+        } else {
+          setErrorMsg(data.error || 'Check-in failed.');
+        }
+    } catch (e) {
+      setErrorMsg('Failed to process check-in.');
+    }
+    setProcessing(false);
+    setIsScanning(false);
+  };
+
   const handleClockInOut = async () => {
     if (!worker || processing) return;
-    setProcessing(true);
     setErrorMsg(null);
 
     try {
       if (!isCheckedIn) {
-        // Clock In (POST)
+        // Trigger Liveness/Face Scan before Clocking In
+        if (!modelsLoaded) {
+          setErrorMsg('Biometric models are still loading. Please wait.');
+          return;
+        }
+        setIsScanning(true);
+        startVideo();
         const res = await fetch('/api/attendance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -83,6 +135,7 @@ export default function WorkerHome() {
         }
       } else {
         // Clock Out (PUT)
+        setProcessing(true);
         const res = await fetch('/api/attendance', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -123,6 +176,45 @@ export default function WorkerHome() {
     );
   }
 
+  const startVideo = () => {
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: 'user' } })
+      .then((stream) => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      })
+      .catch((err) => {
+        setErrorMsg('Camera access denied. Cannot verify identity.');
+        setIsScanning(false);
+      });
+  };
+
+  const handleFaceScan = async () => {
+    if (videoRef.current) {
+      const detections = await faceapi.detectAllFaces(
+        videoRef.current,
+        new faceapi.TinyFaceDetectorOptions()
+      );
+      if (detections.length > 0) {
+        // Face detected! Proceed to clock in
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => track.stop());
+        executeClockIn();
+      } else {
+        setErrorMsg('No face detected. Please look directly at the camera.');
+      }
+    }
+  };
+
+  const cancelScan = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    setIsScanning(false);
+  };
+
   if (errorMsg && !worker) {
     return (
       <div className="flex-grow flex flex-col items-center justify-center p-6 gap-4">
@@ -154,24 +246,56 @@ export default function WorkerHome() {
         </div>
       )}
 
-      {/* Giant Check In / Out Button */}
-      <button
-        onClick={handleClockInOut}
-        disabled={processing}
-        className={`relative w-64 h-64 rounded-full flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-lg border-4 ${
-          isCheckedIn
-            ? 'bg-[#ba1a1a] border-[#e05a5a] text-white hover:bg-opacity-95'
-            : 'bg-[#1e293b] border-[#334155] text-white hover:bg-opacity-95'
-        }`}
-      >
-        <div className="absolute inset-0 rounded-full border-4 border-white opacity-10"></div>
-        <span className="material-symbols-outlined text-[64px] fill animate-bounce">
-          {isCheckedIn ? 'pin_drop' : 'location_on'}
-        </span>
-        <span className="text-xl font-bold tracking-wide uppercase">
-          {processing ? 'Processing...' : isCheckedIn ? 'CLOCK OUT' : 'CLOCK IN'}
-        </span>
-      </button>
+      {/* Giant Check In / Out Button & Scanner */}
+      {isScanning ? (
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative w-64 h-64 rounded-2xl overflow-hidden border-4 border-[#0ea5e9] shadow-[0_0_20px_rgba(14,165,233,0.5)]">
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover scale-x-[-1]"
+            />
+            {/* Scanning Overlay Animation */}
+            <div className="absolute top-0 left-0 w-full h-1 bg-[#0ea5e9] shadow-[0_0_10px_#0ea5e9] animate-[scan_2s_ease-in-out_infinite]"></div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleFaceScan} className="px-6 py-2 bg-[#0ea5e9] text-white font-bold rounded-full shadow-md active:scale-95">
+              Verify Face
+            </button>
+            <button onClick={cancelScan} className="px-6 py-2 bg-transparent text-[#ba1a1a] font-bold rounded-full active:scale-95">
+              Cancel
+            </button>
+          </div>
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes scan {
+              0% { top: 0; opacity: 0; }
+              10% { opacity: 1; }
+              90% { opacity: 1; }
+              100% { top: 100%; opacity: 0; }
+            }
+          `}} />
+        </div>
+      ) : (
+        <button
+          onClick={handleClockInOut}
+          disabled={processing || (!isCheckedIn && !modelsLoaded)}
+          className={`relative w-64 h-64 rounded-full flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-lg border-4 ${
+            isCheckedIn
+              ? 'bg-[#ba1a1a] border-[#e05a5a] text-white hover:bg-opacity-95'
+              : 'bg-[#1e293b] border-[#334155] text-white hover:bg-opacity-95'
+          } ${(!isCheckedIn && !modelsLoaded) ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          <div className="absolute inset-0 rounded-full border-4 border-white opacity-10"></div>
+          <span className="material-symbols-outlined text-[64px] fill animate-bounce">
+            {isCheckedIn ? 'pin_drop' : 'face'}
+          </span>
+          <span className="text-xl font-bold tracking-wide uppercase text-center px-4">
+            {processing ? 'Processing...' : isCheckedIn ? 'CLOCK OUT' : (!modelsLoaded ? 'LOADING BIOMETRICS...' : 'SCAN FACE TO CLOCK IN')}
+          </span>
+        </button>
+      )}
 
       {/* Hours Worked Summary */}
       <div className="w-full max-w-sm bg-white rounded-xl border border-outline-variant p-6 shadow-[0_2px_8px_rgba(13,28,50,0.05)]">

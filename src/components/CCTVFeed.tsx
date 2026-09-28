@@ -1,13 +1,23 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import * as tf from '@tensorflow/tfjs';
+import * as cocoSsd from '@tensorflow-models/coco-ssd';
+import '@tensorflow/tfjs-backend-wasm';
+import '@tensorflow/tfjs-backend-webgpu';
+import { setWasmPaths } from '@tensorflow/tfjs-backend-wasm';
+import Hls from 'hls.js';
 
 interface CCTVFeedProps {
   cameraName?: string;
+  hlsUrl?: string;
+  projectId?: string;
 }
 
 export default function CCTVFeed({
   cameraName = 'GATE 01 - SAFETY CAM',
+  hlsUrl,
+  projectId,
 }: CCTVFeedProps) {
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [useWebcam, setUseWebcam] = useState(false);
@@ -15,12 +25,55 @@ export default function CCTVFeed({
   // Automatic AI Recognition States
   const [isScanning, setIsScanning] = useState<boolean>(true);
   const [helmetDetected, setHelmetDetected] = useState<boolean>(true);
+  const [helmetColor, setHelmetColor] = useState<string>('Any');
 
   const [currentTime, setCurrentTime] = useState<string>('');
+  
+  // Real AI States
+  const [model, setModel] = useState<cocoSsd.ObjectDetection | null>(null);
+  const [predictions, setPredictions] = useState<cocoSsd.DetectedObject[]>([]);
+  const [modelLoading, setModelLoading] = useState(true);
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Violation tracking
+  const [missingHelmetTime, setMissingHelmetTime] = useState<number>(0);
+  const violationSentRef = useRef<boolean>(false);
+
+  const fallbackCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const aiCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const webcamStreamRef = useRef<MediaStream | null>(null);
+
+  // Load TensorFlow.js Model
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        // Optimizing Edge Inference as per Paper's Gap 3
+        try {
+          setWasmPaths(`https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@${tf.version_core}/dist/`);
+          await tf.setBackend('webgpu');
+          await tf.ready();
+          console.log('Edge AI: WebGPU backend active');
+        } catch (e1) {
+          try {
+            await tf.setBackend('wasm');
+            await tf.ready();
+            console.log('Edge AI: WASM backend active');
+          } catch (e2) {
+            await tf.ready();
+            console.log('Edge AI: WebGL default active');
+          }
+        }
+
+        const loadedModel = await cocoSsd.load();
+        setModel(loadedModel);
+      } catch (err) {
+        console.error("Failed to load TFJS model:", err);
+      } finally {
+        setModelLoading(false);
+      }
+    };
+    loadModel();
+  }, []);
 
   // Real-time HUD Clock Ticker
   useEffect(() => {
@@ -47,11 +100,63 @@ export default function CCTVFeed({
     return () => clearInterval(interval);
   }, []);
 
+  // HLS stream loader
+  useEffect(() => {
+    if (hlsUrl && videoRef.current) {
+      if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(videoRef.current);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          videoRef.current?.play().catch(() => {});
+        });
+      } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+        videoRef.current.src = hlsUrl;
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [hlsUrl]);
+
+  // Violation reporting logic (Phi_compliance integration)
+  useEffect(() => {
+    let interval: number;
+    if (!helmetDetected) {
+      interval = window.setInterval(() => {
+        setMissingHelmetTime((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setMissingHelmetTime(0);
+      violationSentRef.current = false;
+    }
+    return () => clearInterval(interval);
+  }, [helmetDetected]);
+
+  useEffect(() => {
+    // If missing helmet for 5+ seconds, log violation to backend
+    if (missingHelmetTime >= 5 && !violationSentRef.current) {
+      violationSentRef.current = true;
+      fetch('/api/safety-violations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: projectId || 'demo',
+          cameraName,
+        }),
+      }).then(res => res.json())
+        .then(data => console.log('Safety violation API response:', data))
+        .catch(console.error);
+    }
+  }, [missingHelmetTime, cameraName, projectId]);
+
   // File upload handler
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       stopWebcam();
+      // Explicitly clear srcObject so the browser respects the src attribute
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
       const url = URL.createObjectURL(file);
       setVideoSrc(url);
     }
@@ -60,18 +165,19 @@ export default function CCTVFeed({
   // Attach webcam stream when video tag mounts
   useEffect(() => {
     if (useWebcam && webcamStreamRef.current && videoRef.current) {
+      // Explicitly clear src so srcObject takes full precedence
+      videoRef.current.removeAttribute('src');
       videoRef.current.srcObject = webcamStreamRef.current;
       videoRef.current.play().catch(() => {});
     }
   }, [useWebcam]);
 
-  // Webcam handler - Defaults Helmet: MISSING when webcam turns on
+  // Webcam handler
   const startWebcam = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       webcamStreamRef.current = stream;
       setUseWebcam(true);
-      setHelmetDetected(false); // Live user webcam starts with Helmet MISSING until toggled
       setVideoSrc(null);
     } catch (err: any) {
       alert(`Could not access webcam: ${err.message || 'Please check browser camera permissions.'}`);
@@ -83,15 +189,158 @@ export default function CCTVFeed({
       webcamStreamRef.current.getTracks().forEach((track) => track.stop());
       webcamStreamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setUseWebcam(false);
+    setPredictions([]);
     setHelmetDetected(true);
   };
 
-  // Canvas CCTV Animation Loop
+  // Live AI Inference Loop for WebCam/Video
+  useEffect(() => {
+    let animId: number;
+    const detectFrame = async () => {
+      if (model && videoRef.current && videoRef.current.readyState >= 2) {
+        if ((useWebcam || videoSrc) && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
+           try {
+             const preds = await model.detect(videoRef.current);
+             setPredictions(preds);
+           } catch (e) {
+             console.error('TFJS Detection Error:', e);
+           }
+        }
+      }
+      animId = requestAnimationFrame(detectFrame);
+    };
+    detectFrame();
+    return () => cancelAnimationFrame(animId);
+  }, [model, useWebcam, videoSrc]);
+
+  // Drawing AI Overlays for Real Inference + Color Heuristic
+  useEffect(() => {
+    if (!useWebcam && !videoSrc) return;
+    const canvas = aiCanvasRef.current;
+    if (!canvas || !videoRef.current) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    // Hidden canvas for reading pixel data
+    const hiddenCanvas = document.createElement('canvas');
+    const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+
+    let animId: number;
+    const renderOverlays = () => {
+       if (videoRef.current) {
+         canvas.width = videoRef.current.videoWidth || 640;
+         canvas.height = videoRef.current.videoHeight || 360;
+         
+         if (hiddenCtx) {
+           hiddenCanvas.width = canvas.width;
+           hiddenCanvas.height = canvas.height;
+           hiddenCtx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+         }
+       }
+
+       ctx.clearRect(0, 0, canvas.width, canvas.height);
+       
+       let allHelmetsOk = true;
+       let personCount = 0;
+       
+       predictions.forEach(prediction => {
+         const [x, y, width, height] = prediction.bbox;
+         const isPerson = prediction.class === 'person';
+         
+         let hasHelmet = false;
+
+         if (isPerson) {
+             personCount++;
+             if (hiddenCtx) {
+                 // Crop the top 20% of the bounding box (Head region)
+                 const headY = Math.max(0, y);
+                 const headX = Math.max(0, x);
+                 const headW = Math.min(canvas.width - headX, width);
+                 const headH = Math.min(canvas.height - headY, height * 0.2);
+
+                 if (headW > 0 && headH > 0) {
+                     const imgData = hiddenCtx.getImageData(headX, headY, headW, headH);
+                     const data = imgData.data;
+                     let safetyColorPixels = 0;
+
+                     for (let i = 0; i < data.length; i += 4) {
+                        const r = data[i];
+                        const g = data[i+1];
+                        const b = data[i+2];
+                        
+                        let isMatch = false;
+                        
+                        // Dynamic Color Heuristics (Robust to lighting)
+                        if (helmetColor === 'Yellow' || helmetColor === 'Any') {
+                            if (r > 100 && g > 100 && b < Math.min(r, g) * 0.75) isMatch = true;
+                        }
+                        if (helmetColor === 'Orange' || helmetColor === 'Any') {
+                            if (r > 120 && g > 50 && g < r * 0.85 && b < g * 0.8) isMatch = true;
+                        }
+                        // WARNING: White is excluded from 'Any' because white walls/windows cause 99% of false positives indoors.
+                        if (helmetColor === 'White') {
+                            if (r > 160 && g > 160 && b > 160 && Math.abs(r-g) < 30 && Math.abs(r-b) < 30) isMatch = true;
+                        }
+                        if (helmetColor === 'Blue' || helmetColor === 'Any') {
+                            if (b > 100 && r < b * 0.7 && g < b * 0.8) isMatch = true;
+                        }
+                        if (helmetColor === 'Red' || helmetColor === 'Any') {
+                            if (r > 120 && g < r * 0.6 && b < r * 0.6) isMatch = true;
+                        }
+                        
+                        if (isMatch) {
+                           safetyColorPixels++;
+                        }
+                     }
+                     // Require 15% of the head region to match the selected color (was 3%, too low)
+                     hasHelmet = (safetyColorPixels / (headW * headH)) > 0.15; 
+                 }
+             }
+             if (!hasHelmet) allHelmetsOk = false;
+         }
+         
+         const boxColor = isPerson ? (hasHelmet ? '#10b981' : '#ef4444') : '#3b82f6';
+         
+         ctx.strokeStyle = boxColor;
+         ctx.lineWidth = 4;
+         ctx.strokeRect(x, y, width, height);
+
+         ctx.fillStyle = boxColor;
+         ctx.fillRect(x, y - 36, 220, 36);
+         
+         ctx.fillStyle = '#ffffff';
+         ctx.font = 'bold 18px monospace';
+         
+         let labelText = `${prediction.class.toUpperCase()} (${Math.round(prediction.score * 100)}%)`;
+         if (isPerson) {
+             labelText = hasHelmet ? 'HELMET: OK ✓' : '⚠️ HELMET: MISSING';
+         }
+         ctx.fillText(labelText, x + 8, y - 12);
+       });
+
+       // Update global state for UI
+       if (personCount > 0) {
+           setHelmetDetected(allHelmetsOk);
+       } else {
+           setHelmetDetected(true);
+       }
+
+       animId = requestAnimationFrame(renderOverlays);
+    };
+    renderOverlays();
+    return () => cancelAnimationFrame(animId);
+  }, [predictions, useWebcam, videoSrc]);
+
+
+  // Canvas CCTV Animation Loop (Fallback when no video feed)
   useEffect(() => {
     if (videoSrc || useWebcam) return;
 
-    const canvas = canvasRef.current;
+    const canvas = fallbackCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -106,14 +355,14 @@ export default function CCTVFeed({
       const w = canvas.width;
       const h = canvas.height;
 
-      // 1. Dark CCTV Background Gradient
+      // Dark CCTV Background Gradient
       const grad = ctx.createLinearGradient(0, 0, w, h);
       grad.addColorStop(0, '#0c1524');
       grad.addColorStop(1, '#050a12');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
 
-      // 2. Perspective Construction Grid Lines
+      // Perspective Construction Grid Lines
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
       ctx.lineWidth = 1;
       for (let i = 0; i < w; i += 40) {
@@ -129,28 +378,11 @@ export default function CCTVFeed({
         ctx.stroke();
       }
 
-      // 3. Construction Gate Outline
-      ctx.strokeStyle = 'rgba(255, 185, 95, 0.15)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(30, 40, w - 60, h - 80);
-
-      ctx.fillStyle = 'rgba(255, 185, 95, 0.08)';
-      ctx.fillRect(30, 40, 25, h - 80);
-      ctx.fillRect(w - 55, 40, 25, h - 80);
-
-      // 4. Moving Worker Silhouette
+      // Moving Worker Silhouette
       workerX += workerDirection;
       if (workerX > w - 180 || workerX < 140) workerDirection *= -1;
 
       const workerY = h / 2 - 20;
-
-      // Draw Hardhat if Helmet detected
-      if (helmetDetected) {
-        ctx.fillStyle = '#e09800'; // Safety Yellow Helmet
-        ctx.beginPath();
-        ctx.arc(workerX, workerY - 30, 16, Math.PI, 0);
-        ctx.fill();
-      }
 
       // Head circle
       ctx.fillStyle = '#d1d5db';
@@ -164,65 +396,28 @@ export default function CCTVFeed({
       ctx.roundRect(workerX - 18, workerY - 5, 36, 45, 6);
       ctx.fill();
 
-      // Vest stripes
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(workerX - 14, workerY + 5, 8, 30);
-      ctx.fillRect(workerX + 6, workerY + 5, 8, 30);
-
-      // 5. AI Laser Scan Line
-      scanY += scanDirection * 1.5;
-      if (scanY > h - 60 || scanY < 50) scanDirection *= -1;
-
-      ctx.strokeStyle = isScanning
-        ? 'rgba(59, 130, 246, 0.8)'
-        : helmetDetected
-        ? 'rgba(16, 185, 129, 0.4)'
-        : 'rgba(239, 68, 68, 0.5)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(30, scanY);
-      ctx.lineTo(w - 30, scanY);
-      ctx.stroke();
-
-      // 6. AI Detection Bounding Box on Worker
+      // AI Detection Bounding Box on Worker
       const boxW = 80;
       const boxH = 95;
       const boxX = workerX - boxW / 2;
       const boxY = workerY - 45;
 
-      const accentColor = isScanning ? '#3b82f6' : helmetDetected ? '#10b981' : '#ef4444';
+      const accentColor = isScanning ? '#3b82f6' : '#ef4444';
       ctx.strokeStyle = accentColor;
       ctx.lineWidth = 2;
       ctx.strokeRect(boxX, boxY, boxW, boxH);
       ctx.fillStyle = isScanning
         ? 'rgba(59, 130, 246, 0.2)'
-        : helmetDetected
-        ? 'rgba(16, 185, 129, 0.12)'
         : 'rgba(239, 68, 68, 0.15)';
       ctx.fillRect(boxX, boxY, boxW, boxH);
 
-      // Bounding box corners
-      ctx.fillStyle = accentColor;
-      ctx.fillRect(boxX - 2, boxY - 2, 8, 8);
-      ctx.fillRect(boxX + boxW - 6, boxY - 2, 8, 8);
-      ctx.fillRect(boxX - 2, boxY + boxH - 6, 8, 8);
-      ctx.fillRect(boxX + boxW - 6, boxY + boxH - 6, 8, 8);
-
       // Tag Label
-      ctx.fillStyle = isScanning ? '#1d4ed8' : helmetDetected ? '#059669' : '#dc2626';
-      ctx.fillRect(boxX - 10, boxY - 24, 130, 20);
+      ctx.fillStyle = isScanning ? '#1d4ed8' : '#dc2626';
+      ctx.fillRect(boxX - 10, boxY - 24, 150, 20);
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 10px monospace';
-      const labelText = isScanning
-        ? '🔍 SCANNING PPE...'
-        : `${helmetDetected ? 'HELMET: OK ✓' : '⚠️ HELMET: MISSING'}`;
+      const labelText = isScanning ? '🔍 SCANNING PPE...' : '⚠️ HELMET: MISSING';
       ctx.fillText(labelText, boxX - 5, boxY - 10);
-
-      // 7. Video Scanline Effect
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
-      for (let i = 0; i < h; i += 4) {
-        ctx.fillRect(0, i, w, 2);
-      }
 
       animId = requestAnimationFrame(render);
     };
@@ -232,33 +427,32 @@ export default function CCTVFeed({
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [videoSrc, useWebcam, isScanning, helmetDetected]);
+  }, [videoSrc, useWebcam, isScanning]);
 
   return (
-    <div className="bg-white border border-outline-variant/60 rounded-2xl overflow-hidden shadow-[0_2px_12px_rgba(13,28,50,0.06)] flex flex-col">
+    <div className="bg-white border border-outline-variant/60 rounded-2xl overflow-hidden shadow-[0_2px_12px_rgba(13,28,50,0.06)] flex flex-col relative">
       {/* Top Header / Channel controls */}
       <div className="p-3 bg-surface-container-low border-b border-outline-variant/40 flex flex-wrap justify-between items-center gap-2">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-primary text-[20px]">videocam</span>
           <span className="font-bold text-sm text-on-surface">{cameraName}</span>
+          {modelLoading && <span className="text-xs text-on-surface-variant font-mono animate-pulse bg-surface-variant px-2 py-0.5 rounded ml-2">Loading Live AI...</span>}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Helmet Wear Detection Toggle */}
-          <button
-            onClick={() => setHelmetDetected(!helmetDetected)}
-            className={`px-3 py-1 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all border shadow-sm ${
-              helmetDetected
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
-                : 'bg-red-600 text-white border-red-700 animate-pulse font-extrabold'
-            }`}
-            title="Toggle PPE hardhat helmet detection status"
+          {/* Helmet Color Filter */}
+          <select 
+            value={helmetColor} 
+            onChange={(e) => setHelmetColor(e.target.value)}
+            className="text-xs border border-outline-variant rounded-lg px-2 py-1 bg-surface-container-low text-on-surface-variant font-bold cursor-pointer hover:bg-surface-variant transition"
           >
-            <span className="material-symbols-outlined text-[16px]">
-              {helmetDetected ? 'shield' : 'warning'}
-            </span>
-            Helmet: {helmetDetected ? 'WORN ✓' : 'MISSING ⚠️'}
-          </button>
+            <option value="Any">All Helmets</option>
+            <option value="Yellow">Yellow</option>
+            <option value="Orange">Orange</option>
+            <option value="White">White</option>
+            <option value="Blue">Blue</option>
+            <option value="Red">Red</option>
+          </select>
 
           {/* Media Feed Controls */}
           <label className="cursor-pointer px-2.5 py-1 bg-white border border-outline-variant hover:bg-surface-variant text-primary text-xs font-bold rounded-lg flex items-center gap-1 shadow-sm transition">
@@ -275,6 +469,7 @@ export default function CCTVFeed({
             <button
               onClick={startWebcam}
               className="px-2.5 py-1 bg-primary text-on-primary text-xs font-bold rounded-lg flex items-center gap-1 shadow-sm hover:opacity-90 transition"
+              disabled={modelLoading}
             >
               <span className="material-symbols-outlined text-[14px]">videocam</span> Webcam
             </button>
@@ -291,81 +486,31 @@ export default function CCTVFeed({
 
       {/* Main Stream Frame */}
       <div className="relative aspect-video bg-black flex items-center justify-center text-white overflow-hidden group">
-        {/* 1. Custom Uploaded Video */}
-        {videoSrc && !useWebcam && (
-          <video
-            key={videoSrc}
-            src={videoSrc}
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="w-full h-full object-cover"
-          />
-        )}
+        
+        <video
+          ref={videoRef}
+          src={(!useWebcam && videoSrc) ? videoSrc : undefined}
+          autoPlay
+          loop={!useWebcam}
+          muted
+          playsInline
+          className={`absolute top-0 left-0 w-full h-full object-cover ${(useWebcam || videoSrc || hlsUrl) ? 'block' : 'hidden'}`}
+        />
 
-        {/* 2. Live Webcam Stream */}
-        {useWebcam && (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover"
-          />
-        )}
+        {/* Real AI Overlay Canvas */}
+        <canvas 
+          ref={aiCanvasRef} 
+          className={`absolute top-0 left-0 w-full h-full object-cover pointer-events-none ${(useWebcam || videoSrc || hlsUrl) ? 'block' : 'hidden'}`} 
+        />
 
-        {/* 3. HTML5 Canvas AI Simulation (Fallback) */}
-        {!videoSrc && !useWebcam && (
+        {/* HTML5 Canvas AI Simulation (Fallback) */}
+        {!videoSrc && !useWebcam && !hlsUrl && (
           <canvas
-            ref={canvasRef}
+            ref={fallbackCanvasRef}
             width={640}
             height={360}
             className="w-full h-full object-cover"
           />
-        )}
-
-        {/* Dynamic Bounding Box Overlay for Video/Webcam */}
-        {(videoSrc || useWebcam) && (
-          <div
-            className={`absolute top-[18%] left-[30%] w-[40%] h-[55%] border-2 rounded-2xl pointer-events-none transition-all duration-300 ${
-              isScanning
-                ? 'border-sky-400 bg-sky-500/20 shadow-[0_0_25px_rgba(56,189,248,0.6)] animate-pulse'
-                : helmetDetected
-                ? 'border-emerald-400 bg-emerald-500/10 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
-                : 'border-red-500 bg-red-500/20 shadow-[0_0_25px_rgba(239,68,68,0.5)] animate-pulse'
-            }`}
-          >
-            {/* Top Label Tag */}
-            <div
-              className={`absolute -top-7 left-0 text-white text-[10px] font-mono font-bold px-2.5 py-1 rounded-md shadow flex items-center gap-1.5 ${
-                isScanning
-                  ? 'bg-sky-600 animate-pulse'
-                  : helmetDetected
-                  ? 'bg-emerald-600'
-                  : 'bg-red-600 animate-bounce'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[13px]">
-                {isScanning ? 'sync' : helmetDetected ? 'shield' : 'warning'}
-              </span>
-              <span>
-                {isScanning ? '🔍 SCANNING PPE...' : helmetDetected ? 'HELMET: OK ✓' : '⚠️ HELMET: MISSING!'}
-              </span>
-            </div>
-
-            {/* Corner Brackets */}
-            <div
-              className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 border-r-2 border-b-2 ${
-                isScanning ? 'border-sky-400' : helmetDetected ? 'border-emerald-400' : 'border-red-500'
-              }`}
-            />
-            <div
-              className={`absolute -top-1 -left-1 w-3.5 h-3.5 border-l-2 border-t-2 ${
-                isScanning ? 'border-sky-400' : helmetDetected ? 'border-emerald-400' : 'border-red-500'
-              }`}
-            />
-          </div>
         )}
 
         {/* Top Left HUD */}
@@ -399,14 +544,17 @@ export default function CCTVFeed({
 
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-bold text-white text-sm">AI Safety Monitor</span>
+                <span className="font-bold text-white text-sm">Hybrid CV & AI Inference</span>
+                <span className="bg-primary/20 text-primary text-[9px] px-1.5 py-0.5 rounded font-bold">COCO-SSD + HEURISTIC</span>
               </div>
               <div
                 className={`text-[10px] font-mono font-bold ${
                   isScanning ? 'text-sky-400' : helmetDetected ? 'text-emerald-400' : 'text-red-400 animate-pulse'
                 }`}
               >
-                {isScanning ? 'Analyzing video frames...' : `Status: ${helmetDetected ? 'All Clear' : 'Violation Detected!'}`}
+                {predictions.length > 0 
+                    ? `Live Detect: ${predictions.map(p => p.class).join(', ')}`
+                    : (isScanning ? 'Analyzing video frames...' : `Status: All Clear`)}
               </div>
             </div>
           </div>

@@ -1,7 +1,23 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CheckCircle2, XCircle, UserCheck, HardHat } from "lucide-react";
+import { CheckCircle2, XCircle, UserCheck, HardHat, FlaskConical } from "lucide-react";
+
+// Demo workers — used when no database is connected
+const DEMO_WORKERS: Record<string, string> = {
+  "9820111111": "Vinit Patil",
+  "9820222222": "Viraj Mali",
+  "9820333333": "Amit Patel",
+  "9820444444": "Ramesh Yadav",
+  "9820555555": "Sunita Devi",
+  "9820666666": "Vikram Nair",
+};
+
+const DEMO_PROJECTS = [
+  { id: "demo-alpha", name: "Skyline Heights Residential (Demo)" },
+  { id: "demo-beta",  name: "Hyderabad Metro Mall (Demo)" },
+  { id: "demo-gamma", name: "Namma Metro Phase 3 (Demo)" },
+];
 
 export default function KioskPage() {
   const [input, setInput] = useState("");
@@ -9,13 +25,29 @@ export default function KioskPage() {
   const [projects, setProjects] = useState<any[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [demoMode, setDemoMode] = useState(false);
 
   useEffect(() => {
     fetch("/api/projects")
       .then((res) => res.json())
       .then((data) => {
-        setProjects(data);
-        if (data.length > 0) setSelectedProject(data[0].id);
+        const list = Array.isArray(data) ? data : [];
+        if (list.length > 0) {
+          setProjects(list);
+          setSelectedProject(list[0].id);
+          setDemoMode(false);
+        } else {
+          // No DB — fall back to demo mode
+          setProjects(DEMO_PROJECTS);
+          setSelectedProject(DEMO_PROJECTS[0].id);
+          setDemoMode(true);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setProjects(DEMO_PROJECTS);
+        setSelectedProject(DEMO_PROJECTS[0].id);
+        setDemoMode(true);
         setLoading(false);
       });
   }, []);
@@ -37,6 +69,21 @@ export default function KioskPage() {
       return;
     }
 
+    // --- Demo Mode: simulate without DB ---
+    if (demoMode) {
+      const workerName = DEMO_WORKERS[input];
+      if (!workerName) {
+        setMessage({ text: "Worker not found. Try a demo number below.", type: "error" });
+      } else if (action === "in") {
+        setMessage({ text: `Welcome ${workerName}! ✅ Checked In. (Demo)`, type: "success" });
+      } else {
+        setMessage({ text: `Goodbye ${workerName}! 👋 Checked Out. (Demo)`, type: "success" });
+      }
+      setTimeout(() => { setInput(""); setMessage(null); }, 3000);
+      return;
+    }
+
+    // --- Live Mode: real API ---
     try {
       if (action === "in") {
         const res = await fetch("/api/attendance", {
@@ -66,11 +113,8 @@ export default function KioskPage() {
     } catch (err) {
       setMessage({ text: "Network error", type: "error" });
     }
-    
-    setTimeout(() => {
-      setInput("");
-      setMessage(null);
-    }, 3000);
+
+    setTimeout(() => { setInput(""); setMessage(null); }, 3000);
   };
 
   if (loading) return <div className="flex h-screen items-center justify-center bg-gray-900 text-white">Loading...</div>;
@@ -78,7 +122,7 @@ export default function KioskPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-900 font-mono text-white">
       <div className="absolute top-4 right-4 text-xs text-gray-500 flex items-center gap-2">
-        <select 
+        <select
           className="bg-gray-800 text-white border border-gray-700 p-2 rounded outline-none"
           value={selectedProject}
           onChange={(e) => setSelectedProject(e.target.value)}
@@ -87,6 +131,14 @@ export default function KioskPage() {
         </select>
         <span>Site: Kiosk 01</span>
       </div>
+
+      {/* Demo mode banner */}
+      {demoMode && (
+        <div className="absolute top-4 left-4 flex items-center gap-2 rounded-lg bg-yellow-900/40 border border-yellow-700 px-3 py-2 text-xs text-yellow-400">
+          <FlaskConical className="h-4 w-4" />
+          <span className="font-bold">DEMO MODE</span> — No database connected
+        </div>
+      )}
 
       <div className="mb-8 text-center">
         <HardHat className="mx-auto mb-4 h-16 w-16 text-yellow-500" />
@@ -157,6 +209,19 @@ export default function KioskPage() {
             CLOCK OUT
           </button>
         </div>
+
+        {/* Demo hint */}
+        {demoMode && (
+          <div className="mt-6 rounded-lg bg-gray-900 border border-gray-800 p-3 text-xs text-gray-500">
+            <p className="font-bold text-gray-400 mb-1">📋 Demo Numbers:</p>
+            {Object.entries(DEMO_WORKERS).map(([phone, name]) => (
+              <div key={phone} className="flex justify-between">
+                <span className="text-emerald-500 cursor-pointer hover:text-emerald-400" onClick={() => setInput(phone)}>{phone}</span>
+                <span>{name}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

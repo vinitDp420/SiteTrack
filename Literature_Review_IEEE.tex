@@ -6,6 +6,7 @@
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
+\usepackage{pgfgantt}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \begin{document}
@@ -79,6 +80,48 @@ By offloading attendance to a low-latency Kiosk interface, and allowing the CCTV
 Distinct from the detection literature, a body of work addresses the digitization of construction site administration. Bao \textit{et al.} \cite{bao2023} present a software management solution for digitalization where site functions communicate through standardized APIs. Broader impacts of AI on project management and risk mitigation are echoed by Gado \cite{gado2024} and Manu \cite{manu2024}. Furthermore, the use of blockchain and smart contracts can streamline industry workflows \cite{ye2022}.
 
 Pavelko \textit{et al.} \cite{pavelko2023} examine the automation of payroll accounting, identifying reconciliation delay as a persistent operational bottleneck. Their analysis shows manual payroll reconciliation introduces a 5–14 day delay, leading to worker dissatisfaction. This finding directly motivates the real-time payroll integration proposed in modernized site architectures.
+
+\section{Proposed Project Timeline}
+To successfully execute the proposed architecture combining Digital Identity kiosks with AI-driven PPE compliance and integrated payroll systems, a structured project timeline is essential. Figure \ref{fig:gantt} illustrates a 12-month development and deployment lifecycle, organized into three primary phases: (1) Research and Design, (2) Core System Development, and (3) Integration and Testing. Different colors in the Gantt chart denote various functional domains: blue for conceptual and architectural planning, orange for software and AI model development, and teal for integration and quality assurance.
+
+\begin{figure*}[htbp]
+\centering
+\begin{ganttchart}[
+    x unit=1.3cm,
+    y unit title=0.6cm,
+    y unit chart=0.6cm,
+    vgrid,
+    hgrid,
+    title height=1,
+    bar height=0.6,
+    group right shift=0,
+    group top shift=0.6,
+    group height=.3,
+    group peaks={}{}{.2},
+    milestone/.append style={fill=red!80},
+    milestone left shift=0.5,
+    milestone right shift=0.5
+]{1}{12}
+\gantttitle{Project Timeline (Months)}{12} \\
+\gantttitlelist{1,...,12}{1} \\
+
+\ganttgroup[group/.style={fill=black}]{Phase 1: Research \& Design}{1}{3} \\
+\ganttbar[bar/.style={fill=blue!60}]{Literature \& Requirements}{1}{2} \\
+\ganttbar[bar/.style={fill=blue!60}]{System Architecture}{2}{3} \\
+
+\ganttgroup[group/.style={fill=black}]{Phase 2: Development}{4}{8} \\
+\ganttbar[bar/.style={fill=orange!60}]{PPE YOLOv8 Training}{4}{6} \\
+\ganttbar[bar/.style={fill=orange!60}]{Kiosk App Implementation}{5}{7} \\
+\ganttbar[bar/.style={fill=orange!60}]{Payroll API Setup}{7}{8} \\
+
+\ganttgroup[group/.style={fill=black}]{Phase 3: Integration \& Testing}{9}{12} \\
+\ganttbar[bar/.style={fill=teal!60}]{End-to-End Integration}{9}{10} \\
+\ganttbar[bar/.style={fill=teal!60}]{Field Trials \& Tuning}{11}{12} \\
+\ganttmilestone{Final Deployment}{12}
+\end{ganttchart}
+\caption{Proposed Project Timeline and Milestones. Tasks are color-coded by category: Planning (Blue), Development (Orange), and Integration (Teal).}
+\label{fig:gantt}
+\end{figure*}
 
 \section{Conclusion}
 The reviewed literature establishes that relying on CCTV for both worker identification and safety compliance is fraught with practical challenges due to PPE occlusion. A decoupled software architecture — utilizing Virtual Kiosks for reliable digital attendance and dedicating AI resources to asynchronous PPE detection — provides a far more robust solution. Crucially, this approach generates the clean, 100\%-accurate data logs required to fully automate downstream financial processes, bridging the final gap between site operations and instant payroll execution.

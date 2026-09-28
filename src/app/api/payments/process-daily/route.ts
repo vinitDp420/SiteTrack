@@ -28,7 +28,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Worker is not active.' }, { status: 400 });
     }
 
-    const amount = worker.wageRate; // 1 day's wage
+    let amount = worker.wageRate; // base wage
+
+    // Calculate Phi_compliance based on safety violations today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const violations = await prisma.fraudAlert.count({
+      where: {
+        workerId,
+        alertType: 'PPE_VIOLATION',
+        timestamp: { gte: today },
+      },
+    });
+
+    let deductionNotes = '';
+    let phiCompliance = 1.0;
+
+    if (violations > 0) {
+      // 10% deduction per violation, max 50%
+      const penaltyPercent = Math.min(violations * 10, 50);
+      phiCompliance = 1 - (penaltyPercent / 100);
+      amount = amount * phiCompliance;
+      deductionNotes = ` | Phi_compliance penalty: -${penaltyPercent}% due to ${violations} PPE violation(s).`;
+    }
 
     // Check if already paid today
     const today = new Date();
@@ -69,7 +92,7 @@ export async function POST(req: Request) {
       upiId: worker.upiId,
       amount,
       purpose: 'salary',
-      narration: `Daily wage - ${worker.name} - ${new Date().toLocaleDateString('en-IN')}`,
+      narration: `Daily wage - ${worker.name} - ${new Date().toLocaleDateString('en-IN')}${deductionNotes}`,
     });
 
     // Update payment with result
