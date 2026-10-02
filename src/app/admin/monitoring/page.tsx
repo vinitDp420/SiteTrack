@@ -31,8 +31,7 @@ export default function MonitoringPage() {
           </div>
           <CCTVFeed
             cameraName="GATE 1 - MAIN ENTRANCE"
-            defaultWorkerName="Raj Kumar Singh"
-            defaultConfidence="98.4%"
+            hlsUrl="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
           />
         </div>
 

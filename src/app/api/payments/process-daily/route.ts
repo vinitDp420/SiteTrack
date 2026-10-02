@@ -54,8 +54,6 @@ export async function POST(req: Request) {
     }
 
     // Check if already paid today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     const existingPayment = await prisma.payment.findFirst({
       where: {
         workerId,
