@@ -274,30 +274,29 @@ export default function CCTVFeed({
                         
                         let isMatch = false;
                         
-                        // Dynamic Color Heuristics (Robust to lighting)
+                        // IMPROVED Dynamic Color Heuristics (Highly Forgiving for video testing)
                         if (helmetColor === 'Yellow' || helmetColor === 'Any') {
-                            if (r > 100 && g > 100 && b < Math.min(r, g) * 0.75) isMatch = true;
+                            if (r > 80 && g > 80 && b < Math.max(r, g) * 0.8) isMatch = true;
                         }
                         if (helmetColor === 'Orange' || helmetColor === 'Any') {
-                            if (r > 120 && g > 50 && g < r * 0.85 && b < g * 0.8) isMatch = true;
+                            if (r > 100 && g > 40 && b < r * 0.7) isMatch = true;
                         }
-                        // WARNING: White is excluded from 'Any' because white walls/windows cause 99% of false positives indoors.
                         if (helmetColor === 'White') {
-                            if (r > 160 && g > 160 && b > 160 && Math.abs(r-g) < 30 && Math.abs(r-b) < 30) isMatch = true;
+                            if (r > 130 && g > 130 && b > 130 && Math.abs(r-g) < 40 && Math.abs(r-b) < 40) isMatch = true;
                         }
                         if (helmetColor === 'Blue' || helmetColor === 'Any') {
-                            if (b > 100 && r < b * 0.7 && g < b * 0.8) isMatch = true;
+                            if (b > 80 && r < b * 0.85 && g < b * 0.85) isMatch = true;
                         }
                         if (helmetColor === 'Red' || helmetColor === 'Any') {
-                            if (r > 120 && g < r * 0.6 && b < r * 0.6) isMatch = true;
+                            if (r > 100 && g < r * 0.7 && b < r * 0.7) isMatch = true;
                         }
                         
                         if (isMatch) {
                            safetyColorPixels++;
                         }
                      }
-                     // Require 15% of the head region to match the selected color (was 3%, too low)
-                     hasHelmet = (safetyColorPixels / (headW * headH)) > 0.15; 
+                     // Require only 4% of the head region to match (Highly forgiving for video detection)
+                     hasHelmet = (safetyColorPixels / (headW * headH)) > 0.04; 
                  }
              }
              if (!hasHelmet) allHelmetsOk = false;
