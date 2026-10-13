@@ -23,6 +23,8 @@ export async function GET() {
         worker: {
           include: {
             project: true,
+            payments: { orderBy: { paymentDate: 'desc' }, take: 10 },
+            fraudAlerts: { orderBy: { timestamp: 'desc' }, take: 5 },
           },
         },
       },
