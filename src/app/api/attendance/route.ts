@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { processDailyPayoutForWorker } from '@/lib/payout-service';
 
 export async function GET(req: Request) {
   try {
@@ -154,19 +155,16 @@ export async function PUT(req: Request) {
         hoursWorked,
         status: 'PRESENT',
       },
+      include: {
+        worker: true,
+      },
     });
 
     // Automatically trigger daily payout if paymentType is DAILY
     let paymentResult = null;
     if (activeSession.worker.paymentType === 'DAILY') {
       try {
-        const hostname = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-        const payRes = await fetch(`${hostname}/api/payments/process-daily`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workerId: actualWorkerId }),
-        });
-        paymentResult = await payRes.json();
+        paymentResult = await processDailyPayoutForWorker(actualWorkerId);
       } catch (err: any) {
         console.error('Failed to trigger daily payout on check-out:', err.message);
       }

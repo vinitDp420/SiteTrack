@@ -1,15 +1,5 @@
-// Set fallback connection string for when run outside Next.js process environment
-let databaseUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5432/sitetrack?schema=public';
-if (databaseUrl.includes('127.0.0.1') || databaseUrl.includes('localhost')) {
-  try {
-    const wslIp = require('child_process').execSync('wsl.exe hostname -I').toString().trim().split(' ')[0];
-    if (wslIp) {
-      databaseUrl = databaseUrl.replace('127.0.0.1', wslIp).replace('localhost', wslIp);
-    }
-  } catch (e) {
-    // Ignore
-  }
-}
+require('dotenv').config();
+const databaseUrl = process.env.DATABASE_URL || 'postgresql://postgres:Postgresql%40%23123@127.0.0.1:5432/sitetrack?schema=public';
 process.env.DATABASE_URL = databaseUrl;
 
 const { PrismaClient } = require('@prisma/client');

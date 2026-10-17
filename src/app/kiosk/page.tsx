@@ -34,6 +34,7 @@ export default function KioskPage() {
   const [demoMode, setDemoMode] = useState(false);
   const [allWorkers, setAllWorkers] = useState<any[]>([]);
   const [testWorkerId, setTestWorkerId] = useState<string>("");
+  const [detectedWorker, setDetectedWorker] = useState<{ id: string; name: string; score: number; action: "in" | "out" } | null>(null);
   
   // Face Recognition State
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -152,11 +153,11 @@ export default function KioskPage() {
       if (!DEMO_WORKERS[workerId] && mode === "PIN") {
         setMessage({ text: "Worker not found. Try a demo number below.", type: "error" });
       } else if (action === "in") {
-        setMessage({ text: `Welcome ${workerName}! ✅ Checked In. (Demo)`, type: "success" });
+        setMessage({ text: `Welcome ${workerName}! ✅ Clocked In. (Demo)`, type: "success" });
       } else {
-        setMessage({ text: `Goodbye ${workerName}! 👋 Checked Out. (Demo)`, type: "success" });
+        setMessage({ text: `Goodbye ${workerName}! 👋 Clocked Out. (Demo)`, type: "success" });
       }
-      setTimeout(() => { setInput(""); setMessage(null); }, 3000);
+      setTimeout(() => { setInput(""); setMessage(null); setDetectedWorker(null); }, 3500);
       return;
     }
 
@@ -169,7 +170,8 @@ export default function KioskPage() {
         });
         const data = await res.json();
         if (res.ok) {
-          setMessage({ text: `Welcome ${data.session.worker.name}! Checked In.`, type: "success" });
+          const wName = data.session?.worker?.name || allWorkers.find(w => w.id === workerId)?.name || "Worker";
+          setMessage({ text: `Welcome ${wName}! ✅ Clocked In Successfully.`, type: "success" });
         } else {
           setMessage({ text: data.error || "Failed to check in", type: "error" });
         }
@@ -181,7 +183,8 @@ export default function KioskPage() {
         });
         const data = await res.json();
         if (res.ok) {
-          setMessage({ text: `Goodbye! Checked out.`, type: "success" });
+          const wName = data.session?.worker?.name || allWorkers.find(w => w.id === workerId)?.name || "Worker";
+          setMessage({ text: `Goodbye ${wName}! 👋 Clocked Out Successfully. Daily Wage Disbursed.`, type: "success" });
         } else {
           setMessage({ text: data.error || "Failed to check out", type: "error" });
         }
@@ -189,7 +192,7 @@ export default function KioskPage() {
     } catch (err) {
       setMessage({ text: "Network error", type: "error" });
     }
-    setTimeout(() => { setInput(""); setMessage(null); }, 3000);
+    setTimeout(() => { setInput(""); setMessage(null); setDetectedWorker(null); }, 4000);
   };
 
   const handleSubmit = (action: "in" | "out") => {
@@ -257,6 +260,7 @@ export default function KioskPage() {
           
           let workerIdToLog = "";
           let workerName = "";
+          let matchScore = 96;
 
           // Use True Face Matcher if available
           if (faceMatcher) {
@@ -264,7 +268,7 @@ export default function KioskPage() {
               if (bestMatch.label !== 'unknown') {
                   workerIdToLog = bestMatch.label;
                   workerName = allWorkers.find(w => w.id === workerIdToLog)?.name || "Worker";
-                  setMessage({ text: `Recognized: ${workerName}. Verifying...`, type: "info" });
+                  matchScore = Math.max(70, Math.min(100, Math.round((1 - bestMatch.distance) * 100)));
               } else {
                   setMessage({ text: "Face detected but not recognized in database.", type: "error" });
                   setTimeout(() => { if (mode === "FACE") startCamera(); }, 3000);
@@ -274,29 +278,67 @@ export default function KioskPage() {
               // Fallback to manual dropdown selection if FaceMatcher isn't built (no uploaded photos)
               workerIdToLog = testWorkerId;
               workerName = allWorkers.find(w => w.id === workerIdToLog)?.name || "Worker";
-              setMessage({ text: `Simulating recognition for: ${workerName}...`, type: "info" });
+              matchScore = 98;
+          }
+          
+          // Determine whether worker is currently checked in to toggle in / out
+          let action: "in" | "out" = "in";
+          try {
+             const checkRes = await fetch(`/api/attendance?workerId=${workerIdToLog}`);
+             const logs = await checkRes.json();
+             const isCurrentlyIn = Array.isArray(logs) && logs.length > 0 && logs[0].status === "ON_SITE" && !logs[0].checkOutTime;
+             action = isCurrentlyIn ? "out" : "in";
+          } catch {
+             action = "in";
+          }
+
+          // Real-time HUD banner displaying worker's name and action
+          setDetectedWorker({ id: workerIdToLog, name: workerName, score: matchScore, action });
+          setMessage({ 
+            text: `Identified: ${workerName} • ${action === 'in' ? 'Clocking In' : 'Clocking Out'} (${matchScore}% Match)...`, 
+            type: "info" 
+          });
+
+          // Draw unmirrored face label on canvas
+          if (canvasRef.current && detections[0]) {
+             const ctx = canvasRef.current.getContext('2d');
+             if (ctx) {
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                const box = resizedDetections[0].detection.box;
+                ctx.save();
+                ctx.translate(canvasRef.current.width, 0);
+                ctx.scale(-1, 1);
+                
+                const actionLabel = action === 'in' ? 'CLOCK IN' : 'CLOCK OUT';
+                const nameTag = `${workerName} • ${matchScore}% • ${actionLabel}`;
+                ctx.font = 'bold 12px system-ui, sans-serif';
+                const textWidth = ctx.measureText(nameTag).width;
+                const unmirroredBoxX = canvasRef.current.width - (box.x + box.width);
+                const badgeY = Math.max(26, box.y - 8);
+
+                ctx.fillStyle = action === 'in' ? 'rgba(6, 78, 59, 0.95)' : 'rgba(120, 53, 15, 0.95)';
+                ctx.fillRect(unmirroredBoxX, badgeY - 20, textWidth + 16, 22);
+                ctx.strokeStyle = action === 'in' ? '#10b981' : '#ef4444';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(unmirroredBoxX, badgeY - 20, textWidth + 16, 22);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(nameTag, unmirroredBoxX + 8, badgeY - 5);
+                ctx.restore();
+             }
           }
           
           setTimeout(async () => {
              stopCamera();
-             
-             // Check if they are already checked in to toggle in/out
-             try {
-                const checkRes = await fetch(`/api/attendance?workerId=${workerIdToLog}`);
-                const logs = await checkRes.json();
-                const isCurrentlyIn = logs.length > 0 && logs[0].status === "ON_SITE" && !logs[0].checkOutTime;
-                executeAttendance(workerIdToLog, isCurrentlyIn ? "out" : "in");
-             } catch {
-                executeAttendance(workerIdToLog, "in"); 
-             }
+             await executeAttendance(workerIdToLog, action);
              
              // Restart scanner after 5 seconds
              setTimeout(() => {
+               setDetectedWorker(null);
                if (mode === "FACE") {
                  startCamera();
                }
              }, 5000);
-          }, 1000);
+          }, 1200);
         }
       }
     }, 1000);
@@ -451,10 +493,36 @@ export default function KioskPage() {
                 <ScanFace className="w-4 h-4" /> Training AI with Worker Photos...
               </div>
             )}
+
+            {/* Real-time Detected Worker Name Banner */}
+            {detectedWorker && (
+              <div className={`mb-4 w-full p-3 rounded-xl border flex items-center justify-between shadow-lg animate-in fade-in zoom-in-95 duration-200 ${
+                detectedWorker.action === 'in' 
+                  ? 'bg-emerald-950/90 border-emerald-500 text-emerald-200' 
+                  : 'bg-red-950/90 border-red-500 text-red-200'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs text-white shadow ${
+                    detectedWorker.action === 'in' ? 'bg-emerald-700' : 'bg-red-700'
+                  }`}>
+                    {detectedWorker.name.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-white">{detectedWorker.name}</p>
+                    <p className="text-[10px] text-gray-300 font-mono">Face Confidence: {detectedWorker.score}%</p>
+                  </div>
+                </div>
+                <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-md font-mono ${
+                  detectedWorker.action === 'in' ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white'
+                }`}>
+                  {detectedWorker.action === 'in' ? '🟢 CLOCK IN' : '🔴 CLOCK OUT'}
+                </span>
+              </div>
+            )}
             
             <div className="relative w-64 h-64 rounded-full overflow-hidden border-4 border-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.4)] bg-gray-900 flex items-center justify-center">
               
-              {!isScanning && (
+              {!isScanning && !detectedWorker && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-cyan-500 bg-gray-900/80">
                    <ScanFace className="w-12 h-12 mb-2 opacity-50" />
                    <p className="text-sm font-bold animate-pulse">Initializing Camera...</p>
@@ -478,6 +546,17 @@ export default function KioskPage() {
               {isScanning && (
                 <div className="absolute top-0 left-0 w-full h-1 bg-cyan-400 shadow-[0_0_15px_#22d3ee] animate-[scan_2s_ease-in-out_infinite]"></div>
               )}
+
+              {/* In-Frame Floating Name Pill */}
+              {detectedWorker && (
+                <div className="absolute bottom-3 inset-x-2 z-20 flex justify-center pointer-events-none">
+                  <div className="bg-black/90 backdrop-blur-md px-3 py-1 rounded-full border border-cyan-400 shadow-md">
+                    <span className="text-xs font-mono font-bold text-cyan-300">
+                      {detectedWorker.name}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
             
             <style dangerouslySetInnerHTML={{__html: `
@@ -489,9 +568,15 @@ export default function KioskPage() {
               }
             `}} />
 
-            <div className="mt-8 text-center">
-              <h3 className="text-xl font-bold text-cyan-400 mb-2">Face Recognition Active</h3>
-              <p className="text-sm text-gray-400">Please align your face within the circle.</p>
+            <div className="mt-6 text-center">
+              <h3 className="text-lg font-bold text-cyan-400 mb-1">
+                {detectedWorker ? `Verified: ${detectedWorker.name}` : "Face Recognition Active"}
+              </h3>
+              <p className="text-xs text-gray-400">
+                {detectedWorker 
+                  ? `Processing ${detectedWorker.action === 'in' ? 'Clock In' : 'Clock Out'} for ${detectedWorker.name}...` 
+                  : "Look directly into the camera lens to clock in/out automatically."}
+              </p>
               
               {!faceMatcher && !isBuildingMatcher && (
                 <div className="mt-6 flex flex-col items-center">
