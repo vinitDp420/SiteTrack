@@ -27,6 +27,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Only failed payments can be retried.' }, { status: 400 });
     }
 
+    // Check if worker already received another successful payment today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const existingSuccess = await prisma.payment.findFirst({
+      where: {
+        workerId: payment.workerId,
+        id: { not: paymentId },
+        paymentDate: { gte: today },
+        status: 'SUCCESS',
+      },
+    });
+
+    if (existingSuccess) {
+      return NextResponse.json({
+        error: `Cannot retry: ${payment.worker.name} has already received another payment of ₹${existingSuccess.amount} today (Ref: ${existingSuccess.razorpayPayoutId || existingSuccess.id}). Duplicate payouts are disallowed.`,
+        alreadyPaid: true,
+      }, { status: 400 });
+    }
+
     // Update to PROCESSING
     await prisma.payment.update({
       where: { id: paymentId },

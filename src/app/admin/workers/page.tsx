@@ -18,6 +18,16 @@ interface Worker {
   facePhotoUrl: string | null;
   projectId: string;
   project: Project;
+  user?: {
+    id: string;
+    email: string;
+    role: string;
+  } | null;
+  bankAccountName?: string | null;
+  bankAccountNumber?: string | null;
+  ifscCode?: string | null;
+  upiId?: string | null;
+  paymentType?: string;
 }
 
 const INR = (n: number) =>
@@ -51,6 +61,12 @@ export default function WorkersPage() {
   const [upiId, setUpiId] = useState('');
   const [paymentType, setPaymentType] = useState<'DAILY' | 'MONTHLY'>('DAILY');
 
+  // Worker Login Credentials State
+  const [loginEmail, setLoginEmail] = useState('');
+  const [password, setPassword] = useState('Worker@123');
+  const [showPassword, setShowPassword] = useState(false);
+  const [createdCredentialsAlert, setCreatedCredentialsAlert] = useState<{ name: string; email: string; pass: string } | null>(null);
+
   // Camera State
   const [cameraActive, setCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -83,6 +99,7 @@ export default function WorkersPage() {
     setEditMode(false);
     setSelectedWorkerId(null);
     setName(''); setPhone(''); setWageRate('');
+    setLoginEmail(''); setPassword('Worker@123'); setShowPassword(false);
     setFormError(null);
     setProjectId(selectedProject?.id || (projects.length > 0 ? projects[0].id : ''));
     setStatus('ACTIVE');
@@ -101,6 +118,14 @@ export default function WorkersPage() {
     setWageRate(worker.wageRate.toString());
     setProjectId(worker.projectId);
     setStatus(worker.status);
+    setLoginEmail(worker.user?.email || '');
+    setPassword(''); // Empty means don't change
+    setShowPassword(false);
+    setBankAccountName(worker.bankAccountName || '');
+    setBankAccountNumber(worker.bankAccountNumber || '');
+    setIfscCode(worker.ifscCode || '');
+    setUpiId(worker.upiId || '');
+    setPaymentType((worker.paymentType as any) || 'DAILY');
     setFacePhoto(null);
     setFormError(null);
     setActiveStep(0);
@@ -163,7 +188,21 @@ export default function WorkersPage() {
     if (!projectId) { setFormError('Please select a project.'); return; }
 
     setFormSaving(true);
-    const payload = { name, phone, wageRate: parseFloat(wageRate), projectId, status, facePhoto, bankAccountName, bankAccountNumber, ifscCode, upiId, paymentType };
+    const payload = {
+      name,
+      phone,
+      wageRate: parseFloat(wageRate),
+      projectId,
+      status,
+      facePhoto,
+      bankAccountName,
+      bankAccountNumber,
+      ifscCode,
+      upiId,
+      paymentType,
+      loginEmail: loginEmail.trim(),
+      password: password ? password.trim() : undefined,
+    };
 
     try {
       let res;
@@ -181,8 +220,21 @@ export default function WorkersPage() {
         });
       }
       const result = await res.json();
-      if (result.error) { setFormError(result.error); setFormSaving(false); }
-      else { fetchWorkers(); handleCloseModal(); setFormSaving(false); }
+      if (result.error) {
+        setFormError(result.error);
+        setFormSaving(false);
+      } else {
+        fetchWorkers();
+        handleCloseModal();
+        setFormSaving(false);
+        if (!editMode) {
+          setCreatedCredentialsAlert({
+            name: result.name,
+            email: result.user?.email || loginEmail || `${result.phone}@sitetrack.com`,
+            pass: result.rawPassword || password || 'Worker@123',
+          });
+        }
+      }
     } catch {
       setFormError('Failed to save worker.');
       setFormSaving(false);
@@ -289,7 +341,12 @@ export default function WorkersPage() {
                 </div>
                 <div className="col-span-3">
                   <div className="font-bold text-on-surface">{worker.name}</div>
-                  <div className="text-xs text-on-surface-variant font-mono">ID: {worker.id.substring(0, 8)}</div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="material-symbols-outlined text-[13px] text-cyan-700">vpn_key</span>
+                    <span className="text-[11px] text-primary font-mono font-bold truncate max-w-[190px]" title={`Login ID: ${worker.user?.email || 'No account'}`}>
+                      {worker.user?.email || 'No account'}
+                    </span>
+                  </div>
                 </div>
                 <div className="col-span-2 text-sm text-on-surface">{worker.phone}</div>
                 <div className="col-span-2">
@@ -359,10 +416,10 @@ export default function WorkersPage() {
                 </div>
               )}
 
-              {/* STEP 0: Personal Details */}
+              {/* STEP 0: Personal Details & Login Credentials */}
               {activeStep === 0 && (
                 <div className="space-y-4">
-                  <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">Personal Information</div>
+                  <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">Personal & Login Credentials</div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wide">Full Name *</label>
@@ -371,7 +428,14 @@ export default function WorkersPage() {
                         placeholder="e.g. Raj Kumar Singh"
                         type="text"
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setName(val);
+                          if (!editMode && (!loginEmail || loginEmail.includes('@sitetrack.com'))) {
+                            const slug = val.toLowerCase().replace(/[^a-z0-9]/g, '.').replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+                            setLoginEmail(slug ? `${slug}@sitetrack.com` : '');
+                          }
+                        }}
                       />
                     </div>
                     <div>
@@ -385,6 +449,7 @@ export default function WorkersPage() {
                       />
                     </div>
                   </div>
+
                   <div>
                     <label className="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wide">Roster Status *</label>
                     <div className="flex gap-3">
@@ -402,6 +467,71 @@ export default function WorkersPage() {
                           {s}
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Worker Portal Login ID & Password */}
+                  <div className="pt-3 border-t border-outline-variant/40 space-y-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-primary text-[18px]">vpn_key</span>
+                      <span className="text-xs font-extrabold text-on-surface uppercase tracking-wide">
+                        Portal Login Credentials (ID & Password)
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wide">
+                          Login ID / Email *
+                        </label>
+                        <input
+                          className="w-full h-11 px-4 bg-surface-container-lowest border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary/30 rounded-xl text-sm outline-none transition font-mono"
+                          placeholder="e.g. worker.name@sitetrack.com"
+                          type="text"
+                          value={loginEmail}
+                          onChange={(e) => setLoginEmail(e.target.value)}
+                        />
+                        <p className="text-[10px] text-on-surface-variant mt-1">
+                          Worker signs in using this ID or their phone number.
+                        </p>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1.5">
+                          <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wide">
+                            {editMode ? 'Reset Password (Optional)' : 'Password *'}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setPassword(`Site@${Math.floor(1000 + Math.random() * 9000)}`)}
+                            className="text-[10px] font-bold text-primary hover:underline"
+                          >
+                            Generate
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <input
+                            className="w-full h-11 pl-4 pr-11 bg-surface-container-lowest border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary/30 rounded-xl text-sm outline-none transition font-mono"
+                            placeholder={editMode ? 'Leave blank to keep existing' : 'e.g. Worker@123'}
+                            type={showPassword ? 'text' : 'password'}
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary p-1"
+                            title={showPassword ? 'Hide password' : 'Show password'}
+                          >
+                            <span className="material-symbols-outlined text-[18px]">
+                              {showPassword ? 'visibility_off' : 'visibility'}
+                            </span>
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-on-surface-variant mt-1 font-mono">
+                          {editMode ? 'Leave blank to retain password' : 'Default password: Worker@123'}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -623,6 +753,49 @@ export default function WorkersPage() {
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Worker Credentials Notification Modal */}
+      {createdCredentialsAlert && (
+        <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white max-w-md w-full rounded-3xl p-6 shadow-2xl border border-outline-variant text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center mx-auto shadow-sm">
+              <span className="material-symbols-outlined text-[32px]">verified_user</span>
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-on-surface tracking-tight">Worker Registered Successfully!</h3>
+              <p className="text-xs text-on-surface-variant mt-1.5 leading-relaxed">
+                Login credentials have been configured for <strong className="text-on-surface">{createdCredentialsAlert.name}</strong>. Share these details so the worker can sign in to their mobile portal:
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-left space-y-2.5 text-xs font-mono">
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-sans font-bold">Login ID / Username:</span>
+                <span className="font-bold text-slate-800 select-all">{createdCredentialsAlert.email}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-sans font-bold">Password:</span>
+                <span className="font-bold text-emerald-700 select-all bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  {createdCredentialsAlert.pass}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1">
+                <span className="text-slate-500 font-sans font-bold">Sign In URL:</span>
+                <span className="font-bold text-primary font-sans">http://localhost:3000/login</span>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={() => setCreatedCredentialsAlert(null)}
+                className="w-full py-3 bg-[#0d1c32] hover:bg-[#1a3a6e] text-white rounded-xl text-xs font-bold shadow-md transition"
+              >
+                Done & Close
+              </button>
             </div>
           </div>
         </div>

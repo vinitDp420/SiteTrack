@@ -25,6 +25,8 @@ function saveFacePhoto(base64Data: string, workerName: string): string {
   return `/uploads/${filename}`;
 }
 
+import bcrypt from 'bcryptjs';
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
@@ -33,6 +35,13 @@ export async function GET(req: NextRequest) {
       where: projectId ? { projectId } : undefined,
       include: {
         project: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
       },
       orderBy: {
         name: 'asc',
@@ -47,11 +56,63 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, phone, wageRate, projectId, facePhoto, status, bankAccountName, bankAccountNumber, ifscCode, upiId, paymentType } = body;
+    const {
+      name,
+      phone,
+      wageRate,
+      projectId,
+      facePhoto,
+      status,
+      bankAccountName,
+      bankAccountNumber,
+      ifscCode,
+      upiId,
+      paymentType,
+      loginEmail,
+      password,
+    } = body;
 
     if (!name || !phone || !wageRate || !projectId) {
-      return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing required fields (Name, Phone, Wage Rate, Project).' }, { status: 400 });
     }
+
+    // Determine login email
+    let finalLoginEmail = loginEmail ? loginEmail.trim().toLowerCase() : '';
+    if (finalLoginEmail && !finalLoginEmail.includes('@')) {
+      finalLoginEmail = `${finalLoginEmail}@sitetrack.com`;
+    }
+
+    // If no custom login email provided, generate one from name and digits
+    if (!finalLoginEmail) {
+      const sanitizedName = name.toLowerCase().replace(/[^a-z0-9]/g, '.');
+      const cleanPhone = phone.replace(/[^0-9]/g, '').slice(-4);
+      finalLoginEmail = `${sanitizedName}.${cleanPhone || 'w'}@sitetrack.com`;
+    }
+
+    // Check if user with this login email already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email: finalLoginEmail },
+    });
+
+    if (existingUser) {
+      return NextResponse.json(
+        { error: `Login ID / Email '${finalLoginEmail}' is already registered. Please choose a different Login ID.` },
+        { status: 400 }
+      );
+    }
+
+    // Create user login account with encrypted password
+    const workerPassword = password && password.trim() ? password.trim() : 'Worker@123';
+    const passwordHash = bcrypt.hashSync(workerPassword, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        name: name.trim(),
+        email: finalLoginEmail,
+        passwordHash,
+        role: 'WORKER',
+      },
+    });
 
     let facePhotoUrl = null;
     if (facePhoto) {
@@ -64,10 +125,11 @@ export async function POST(req: NextRequest) {
 
     const worker = await prisma.worker.create({
       data: {
-        name,
-        phone,
+        name: name.trim(),
+        phone: phone.trim(),
         wageRate: parseFloat(wageRate),
         projectId,
+        userId: user.id,
         facePhotoUrl,
         status: status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
         bankAccountName: bankAccountName || null,
@@ -76,9 +138,22 @@ export async function POST(req: NextRequest) {
         upiId: upiId || null,
         paymentType: paymentType === 'MONTHLY' ? 'MONTHLY' : 'DAILY',
       },
+      include: {
+        project: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
     });
 
-    return NextResponse.json(worker);
+    return NextResponse.json({
+      ...worker,
+      rawPassword: workerPassword, // Returned once so admin/supervisor can share with worker
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to create worker.' }, { status: 500 });
   }

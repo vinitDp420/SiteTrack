@@ -24,14 +24,31 @@ function saveFacePhoto(base64Data: string, workerName: string): string {
   return `/uploads/${filename}`;
 }
 
+import bcrypt from 'bcryptjs';
+
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, phone, wageRate, projectId, facePhoto, status, bankAccountName, bankAccountNumber, ifscCode, upiId, paymentType } = body;
+    const {
+      name,
+      phone,
+      wageRate,
+      projectId,
+      facePhoto,
+      status,
+      bankAccountName,
+      bankAccountNumber,
+      ifscCode,
+      upiId,
+      paymentType,
+      loginEmail,
+      password,
+    } = body;
 
     const existingWorker = await prisma.worker.findUnique({
       where: { id },
+      include: { user: true },
     });
 
     if (!existingWorker) {
@@ -39,8 +56,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const updateData: any = {};
-    if (name !== undefined) updateData.name = name;
-    if (phone !== undefined) updateData.phone = phone;
+    if (name !== undefined) updateData.name = name.trim();
+    if (phone !== undefined) updateData.phone = phone.trim();
     if (wageRate !== undefined) updateData.wageRate = parseFloat(wageRate);
     if (projectId !== undefined) updateData.projectId = projectId;
     if (status !== undefined) updateData.status = status;
@@ -49,6 +66,68 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (ifscCode !== undefined) updateData.ifscCode = ifscCode || null;
     if (upiId !== undefined) updateData.upiId = upiId || null;
     if (paymentType !== undefined) updateData.paymentType = paymentType;
+
+    // Handle Login ID & Password update
+    if (loginEmail || password) {
+      let finalLoginEmail = loginEmail ? loginEmail.trim().toLowerCase() : '';
+      if (finalLoginEmail && !finalLoginEmail.includes('@')) {
+        finalLoginEmail = `${finalLoginEmail}@sitetrack.com`;
+      }
+
+      if (existingWorker.userId) {
+        // Worker already has a linked User
+        if (finalLoginEmail && finalLoginEmail !== existingWorker.user?.email) {
+          const taken = await prisma.user.findFirst({
+            where: {
+              email: finalLoginEmail,
+              id: { not: existingWorker.userId },
+            },
+          });
+          if (taken) {
+            return NextResponse.json(
+              { error: `Login ID / Email '${finalLoginEmail}' is already taken by another user.` },
+              { status: 400 }
+            );
+          }
+        }
+
+        const userUpdate: any = {};
+        if (finalLoginEmail) userUpdate.email = finalLoginEmail;
+        if (name) userUpdate.name = name.trim();
+        if (password && password.trim()) {
+          userUpdate.passwordHash = bcrypt.hashSync(password.trim(), 10);
+        }
+
+        if (Object.keys(userUpdate).length > 0) {
+          await prisma.user.update({
+            where: { id: existingWorker.userId },
+            data: userUpdate,
+          });
+        }
+      } else if (finalLoginEmail) {
+        // Worker had no linked User — create one now
+        const taken = await prisma.user.findUnique({
+          where: { email: finalLoginEmail },
+        });
+        if (taken) {
+          return NextResponse.json(
+            { error: `Login ID / Email '${finalLoginEmail}' is already taken.` },
+            { status: 400 }
+          );
+        }
+
+        const workerPassword = password && password.trim() ? password.trim() : 'Worker@123';
+        const newUser = await prisma.user.create({
+          data: {
+            name: (name || existingWorker.name).trim(),
+            email: finalLoginEmail,
+            passwordHash: bcrypt.hashSync(workerPassword, 10),
+            role: 'WORKER',
+          },
+        });
+        updateData.userId = newUser.id;
+      }
+    }
 
     if (facePhoto) {
       try {
@@ -61,6 +140,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const updatedWorker = await prisma.worker.update({
       where: { id },
       data: updateData,
+      include: {
+        project: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
     });
 
     return NextResponse.json(updatedWorker);
@@ -78,11 +167,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: 'Worker not found.' }, { status: 404 });
     }
 
-    // Perform hard delete, but since cascade is defined, it will delete associated logs if any.
-    // In Prisma, we delete the worker.
+    const userId = worker.userId;
+
     await prisma.worker.delete({
       where: { id },
     });
+
+    if (userId) {
+      await prisma.user.delete({ where: { id: userId } }).catch(() => {});
+    }
 
     return NextResponse.json({ message: 'Worker deleted successfully.' });
   } catch (error: any) {

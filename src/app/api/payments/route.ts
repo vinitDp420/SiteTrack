@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getRazorpayClientConfig } from '@/lib/razorpay';
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const projectId = url.searchParams.get('projectId');
     const workerId = url.searchParams.get('workerId');
-    const type = url.searchParams.get('type'); // DAILY or MONTHLY
+    const type = url.searchParams.get('type'); // DAILY, MONTHLY, or PAYROLL
 
     const where: any = {};
     if (projectId) where.projectId = projectId;
@@ -17,15 +18,72 @@ export async function GET(req: Request) {
       where,
       orderBy: { paymentDate: 'desc' },
       include: {
-        worker: { select: { name: true, bankAccountNumber: true, upiId: true } },
+        worker: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            bankAccountNumber: true,
+            bankAccountName: true,
+            ifscCode: true,
+            upiId: true,
+            wageRate: true,
+            paymentType: true,
+          },
+        },
       },
-      take: 100,
+      take: 150,
     });
 
     // Summary stats
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    // Active workers for initiating new Razorpay payments
+    const rawWorkers = await prisma.worker.findMany({
+      where: projectId ? { projectId, status: 'ACTIVE' } : { status: 'ACTIVE' },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        wageRate: true,
+        bankAccountNumber: true,
+        bankAccountName: true,
+        ifscCode: true,
+        upiId: true,
+        paymentType: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    // Check today's payment status for each worker to prevent duplicate payments
+    const workers = await Promise.all(
+      rawWorkers.map(async (worker) => {
+        const todayPayment = await prisma.payment.findFirst({
+          where: {
+            workerId: worker.id,
+            paymentDate: { gte: today },
+            status: { in: ['SUCCESS', 'PROCESSING'] },
+          },
+          select: {
+            id: true,
+            amount: true,
+            status: true,
+            razorpayPayoutId: true,
+            paymentDate: true,
+            type: true,
+          },
+          orderBy: { paymentDate: 'desc' },
+        });
+
+        return {
+          ...worker,
+          isPaidToday: !!todayPayment,
+          todayPayment: todayPayment || null,
+        };
+      })
+    );
 
     const stats = await prisma.payment.aggregate({
       where: { ...where, status: 'SUCCESS' },
@@ -53,8 +111,12 @@ export async function GET(req: Request) {
       where: { ...where, status: 'FAILED' },
     });
 
+    const razorpayConfig = getRazorpayClientConfig();
+
     return NextResponse.json({
       payments,
+      workers,
+      razorpayConfig,
       summary: {
         totalPaid: stats._sum.amount || 0,
         totalCount: stats._count || 0,
@@ -67,6 +129,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (error: any) {
+    console.error('Error fetching payments:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

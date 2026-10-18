@@ -1,7 +1,35 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Script from 'next/script';
 import { useProject } from '@/lib/project-context';
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
+interface WorkerInfo {
+  id: string;
+  name: string;
+  phone: string;
+  wageRate: number;
+  bankAccountNumber: string | null;
+  bankAccountName: string | null;
+  ifscCode: string | null;
+  upiId: string | null;
+  paymentType: string;
+  isPaidToday?: boolean;
+  todayPayment?: {
+    id: string;
+    amount: number;
+    status: string;
+    razorpayPayoutId: string | null;
+    paymentDate: string;
+    type: string;
+  } | null;
+}
 
 interface Payment {
   id: string;
@@ -15,6 +43,8 @@ interface Payment {
   worker: {
     name: string;
     bankAccountNumber: string | null;
+    bankAccountName?: string | null;
+    ifscCode?: string | null;
     upiId: string | null;
   };
 }
@@ -30,40 +60,367 @@ interface Summary {
   failedCount: number;
 }
 
+interface RazorpayConfig {
+  keyId: string;
+  isSimulation: boolean;
+  companyName: string;
+  themeColor: string;
+}
+
+interface SimulatedCheckoutOrder {
+  orderId: string;
+  amount: number;
+  workerId?: string;
+  workerName: string;
+  type: string;
+  isBulk?: boolean;
+  workerIds?: string[];
+  workerAmounts?: Record<string, number>;
+}
+
 const INR = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
 
 export default function PaymentsPage() {
   const { selectedProject } = useProject();
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [summary, setSummary] = useState<Summary>({ totalPaid: 0, totalCount: 0, todayPaid: 0, todayCount: 0, monthPaid: 0, monthCount: 0, pendingCount: 0, failedCount: 0 });
+  const [workers, setWorkers] = useState<WorkerInfo[]>([]);
+  const [razorpayConfig, setRazorpayConfig] = useState<RazorpayConfig | null>(null);
+  const [summary, setSummary] = useState<Summary>({
+    totalPaid: 0,
+    totalCount: 0,
+    todayPaid: 0,
+    todayCount: 0,
+    monthPaid: 0,
+    monthCount: 0,
+    pendingCount: 0,
+    failedCount: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [processingMonthly, setProcessingMonthly] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
-  const [filterType, setFilterType] = useState<'ALL' | 'DAILY' | 'MONTHLY'>('ALL');
+  const [filterType, setFilterType] = useState<'ALL' | 'DAILY' | 'MONTHLY' | 'PAYROLL' | 'FAILED'>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Modals & Notifications
+  const [selectedVoucher, setSelectedVoucher] = useState<Payment | null>(null);
+  const [isNewPaymentModalOpen, setIsNewPaymentModalOpen] = useState(false);
+  const [paymentScope, setPaymentScope] = useState<'SINGLE' | 'ALL'>('ALL'); // 'SINGLE' or 'ALL'
+  const [newPaymentWorkerId, setNewPaymentWorkerId] = useState<string>('');
+  const [newPaymentAmount, setNewPaymentAmount] = useState<string>('');
+  const [newPaymentType, setNewPaymentType] = useState<'DAILY' | 'MONTHLY' | 'BONUS'>('DAILY');
+  const [customBatchAmount, setCustomBatchAmount] = useState<string>('');
+  const [useCustomBatchAmount, setUseCustomBatchAmount] = useState<boolean>(false);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  
+  // Simulated Razorpay Checkout Gateway State
+  const [simulatedCheckoutOrder, setSimulatedCheckoutOrder] = useState<SimulatedCheckoutOrder | null>(null);
+  const [checkoutPaymentTab, setCheckoutPaymentTab] = useState<'UPI' | 'CARD' | 'NETBANKING'>('UPI');
+  const [selectedBank, setSelectedBank] = useState('HDFC Bank');
+  
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  useEffect(() => {
-    if (selectedProject) fetchPayments();
-  }, [selectedProject, filterType]);
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
 
   const fetchPayments = async () => {
     if (!selectedProject) return;
     setLoading(true);
     try {
-      const typeParam = filterType !== 'ALL' ? `&type=${filterType}` : '';
+      const typeParam = filterType !== 'ALL' && filterType !== 'FAILED' ? `&type=${filterType}` : '';
       const res = await fetch(`/api/payments?projectId=${selectedProject.id}${typeParam}`);
       const data = await res.json();
       setPayments(data.payments || []);
       setSummary(data.summary || summary);
+      if (data.workers) setWorkers(data.workers);
+      if (data.razorpayConfig) setRazorpayConfig(data.razorpayConfig);
     } catch (e) {
       console.error(e);
     }
     setLoading(false);
   };
 
+  useEffect(() => {
+    if (selectedProject) fetchPayments();
+  }, [selectedProject, filterType]);
+
+  // Partition workers into unpaid today vs already paid today
+  const unpaidWorkers = workers.filter((w) => !w.isPaidToday);
+  const paidTodayWorkers = workers.filter((w) => w.isPaidToday);
+
+  // Selected worker details for single payment
+  const selectedWorker = workers.find((w) => w.id === newPaymentWorkerId);
+
+  // Calculate total batch payment amount (ONLY for unpaid workers to prevent duplicate charges!)
+  const calculateTotalBatchAmount = () => {
+    if (unpaidWorkers.length === 0) return 0;
+    if (useCustomBatchAmount && customBatchAmount) {
+      return Number(customBatchAmount) * unpaidWorkers.length;
+    }
+    return unpaidWorkers.reduce((sum, w) => sum + w.wageRate, 0);
+  };
+
+  // 1. Instant RazorpayX Transfer (Handles Single or ALL workers)
+  const handleInstantRazorpayTransfer = async () => {
+    setIsSubmittingPayment(true);
+    try {
+      if (paymentScope === 'ALL') {
+        // Disburse to ALL UNPAID workers in project
+        if (unpaidWorkers.length === 0) {
+          alert('All active workers have already been paid today. Duplicate payments are not permitted.');
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        const totalAmount = calculateTotalBatchAmount();
+        const res = await fetch('/api/payments/disburse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batch: true,
+            projectId: selectedProject?.id,
+            workerIds: unpaidWorkers.map((w) => w.id),
+            type: newPaymentType,
+            amountPerWorker: useCustomBatchAmount && customBatchAmount ? Number(customBatchAmount) : undefined,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || `Disbursed ₹${totalAmount} to ${unpaidWorkers.length} workers via Razorpay!`, 'success');
+          setIsNewPaymentModalOpen(false);
+          fetchPayments();
+        } else {
+          showToast(data.error || 'Batch payout failed.', 'error');
+        }
+      } else {
+        // Single Worker Payout with Duplicate Check
+        if (!newPaymentWorkerId) {
+          alert('Please select a worker.');
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        if (selectedWorker?.isPaidToday) {
+          alert(`${selectedWorker.name} has already received payment today of ₹${selectedWorker.todayPayment?.amount}. Duplicate payments are blocked.`);
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        const amt = Number(newPaymentAmount);
+        if (!amt || amt <= 0) {
+          alert('Please enter a valid amount.');
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        const res = await fetch('/api/payments/disburse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workerId: newPaymentWorkerId,
+            amount: amt,
+            type: newPaymentType,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || `₹${amt} disbursed successfully via Razorpay!`, 'success');
+          setIsNewPaymentModalOpen(false);
+          fetchPayments();
+        } else {
+          showToast(data.error || 'Razorpay payout failed.', 'error');
+        }
+      }
+    } catch {
+      showToast('Network error while processing Razorpay payout.', 'error');
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
+
+  // 2. Razorpay Checkout Modal Initiator
+  const handleRazorpayCheckout = async () => {
+    setIsSubmittingPayment(true);
+    try {
+      const isBulk = paymentScope === 'ALL';
+
+      if (isBulk) {
+        if (unpaidWorkers.length === 0) {
+          alert('All active workers have already been paid today. Duplicate payments are not allowed.');
+          setIsSubmittingPayment(false);
+          return;
+        }
+      } else {
+        if (!newPaymentWorkerId) {
+          alert('Please select a worker.');
+          setIsSubmittingPayment(false);
+          return;
+        }
+        if (selectedWorker?.isPaidToday) {
+          alert(`${selectedWorker.name} has already received payment today of ₹${selectedWorker.todayPayment?.amount}. Duplicate payments are blocked.`);
+          setIsSubmittingPayment(false);
+          return;
+        }
+      }
+
+      const totalAmt = isBulk ? calculateTotalBatchAmount() : Number(newPaymentAmount);
+      if (!totalAmt || totalAmt <= 0) {
+        alert('Invalid payment amount.');
+        setIsSubmittingPayment(false);
+        return;
+      }
+
+      const workerAmounts: Record<string, number> = {};
+      if (isBulk) {
+        unpaidWorkers.forEach((w) => {
+          workerAmounts[w.id] = useCustomBatchAmount && customBatchAmount ? Number(customBatchAmount) : w.wageRate;
+        });
+      }
+
+      const orderRes = await fetch('/api/payments/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workerId: isBulk ? undefined : newPaymentWorkerId,
+          amount: totalAmt,
+          isBulk,
+          projectId: selectedProject?.id,
+          description: isBulk ? `Payment to ${unpaidWorkers.length} Unpaid Workers` : `Wage: ${selectedWorker?.name}`,
+        }),
+      });
+
+      const orderData = await orderRes.json();
+      if (!orderRes.ok || !orderData.success) {
+        throw new Error(orderData.error || 'Failed to initialize Razorpay Order');
+      }
+
+      const isRealKeysConfigured = !orderData.isSimulation && orderData.keyId && 
+        orderData.keyId.startsWith('rzp_') && 
+        !orderData.keyId.includes('simulation') && 
+        !orderData.keyId.includes('sitetrack');
+
+      if (isRealKeysConfigured && typeof window !== 'undefined' && window.Razorpay) {
+        const options = {
+          key: orderData.keyId,
+          amount: orderData.amount,
+          currency: 'INR',
+          name: 'SiteTrack Payments',
+          description: orderData.description,
+          image: '/favicon.ico',
+          order_id: orderData.orderId,
+          handler: async function (response: any) {
+            try {
+              const verifyRes = await fetch('/api/payments/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  workerId: isBulk ? undefined : newPaymentWorkerId,
+                  amount: totalAmt,
+                  type: newPaymentType,
+                  projectId: selectedProject?.id,
+                  isBulk,
+                  workerIds: isBulk ? unpaidWorkers.map((w) => w.id) : undefined,
+                  workerAmounts: isBulk ? workerAmounts : undefined,
+                  razorpayOrderId: response.razorpay_order_id || orderData.orderId,
+                  razorpayPaymentId: response.razorpay_payment_id || `pay_${Date.now()}`,
+                  razorpaySignature: response.razorpay_signature || '',
+                }),
+              });
+              const verifyData = await verifyRes.json();
+              if (verifyRes.ok && verifyData.success) {
+                showToast(verifyData.message, 'success');
+                setIsNewPaymentModalOpen(false);
+                fetchPayments();
+              } else {
+                showToast(verifyData.error || 'Payment signature verification failed', 'error');
+              }
+            } catch {
+              showToast('Verification network error.', 'error');
+            }
+          },
+          prefill: {
+            name: selectedWorker?.name || 'Unpaid Workers Payroll',
+            contact: selectedWorker?.phone || '+91 98201 11111',
+          },
+          theme: {
+            color: '#0d1c32',
+          },
+        };
+
+        const rzp = new window.Razorpay(options);
+        rzp.on('payment.failed', function (resp: any) {
+          showToast(`Razorpay checkout failed: ${resp.error?.description || 'Cancelled'}`, 'error');
+        });
+        rzp.open();
+      } else {
+        // Open Built-in Simulated Razorpay Checkout Gateway modal
+        setSimulatedCheckoutOrder({
+          orderId: orderData.orderId,
+          amount: totalAmt,
+          workerId: isBulk ? undefined : newPaymentWorkerId,
+          workerName: isBulk ? `${unpaidWorkers.length} Unpaid Workers (Batch)` : (selectedWorker?.name || 'Worker'),
+          type: newPaymentType,
+          isBulk,
+          workerIds: isBulk ? unpaidWorkers.map((w) => w.id) : undefined,
+          workerAmounts: isBulk ? workerAmounts : undefined,
+        });
+        setIsNewPaymentModalOpen(false);
+      }
+    } catch (e: any) {
+      showToast(e.message || 'Error triggering Razorpay Checkout.', 'error');
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
+
+  // Complete Simulated Checkout Success
+  const handleSimulatedCheckoutSuccess = async () => {
+    if (!simulatedCheckoutOrder) return;
+    setIsSubmittingPayment(true);
+    try {
+      const generatedPaymentId = `pay_sim_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const res = await fetch('/api/payments/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workerId: simulatedCheckoutOrder.workerId,
+          amount: simulatedCheckoutOrder.amount,
+          type: simulatedCheckoutOrder.type,
+          projectId: selectedProject?.id,
+          razorpayOrderId: simulatedCheckoutOrder.orderId,
+          razorpayPaymentId: generatedPaymentId,
+          razorpaySignature: 'sim_signature_verified',
+          isBulk: simulatedCheckoutOrder.isBulk,
+          workerIds: simulatedCheckoutOrder.workerIds,
+          workerAmounts: simulatedCheckoutOrder.workerAmounts,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(
+          simulatedCheckoutOrder.isBulk
+            ? `Batch Payment of ${INR(simulatedCheckoutOrder.amount)} Settled via Razorpay for ${simulatedCheckoutOrder.workerIds?.length} workers!`
+            : `Razorpay Payment Settled! Txn ID: ${generatedPaymentId}`,
+          'success'
+        );
+        setSimulatedCheckoutOrder(null);
+        fetchPayments();
+      } else {
+        showToast(data.error || 'Payment verification failed.', 'error');
+      }
+    } catch {
+      showToast('Error completing simulated checkout.', 'error');
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
+
+  // 3. Process Monthly Salary via Razorpay
   const handleProcessMonthly = async () => {
     if (!selectedProject || processingMonthly) return;
-    if (!confirm('Process monthly salary payouts for all eligible workers in this project?')) return;
+    if (!confirm('Process monthly salary payouts via Razorpay for all eligible workers in this project?')) return;
     setProcessingMonthly(true);
     try {
       const res = await fetch('/api/payments/process-monthly', {
@@ -72,14 +429,15 @@ export default function PaymentsPage() {
         body: JSON.stringify({ projectId: selectedProject.id }),
       });
       const data = await res.json();
-      alert(data.message || 'Monthly payroll processed.');
+      showToast(data.message || 'Monthly payroll processed via Razorpay.', 'success');
       fetchPayments();
-    } catch (e) {
-      alert('Failed to process monthly payroll.');
+    } catch {
+      showToast('Failed to process monthly payroll.', 'error');
     }
     setProcessingMonthly(false);
   };
 
+  // 4. Retry Failed Payout with Razorpay
   const handleRetry = async (paymentId: string) => {
     setRetryingId(paymentId);
     try {
@@ -89,47 +447,142 @@ export default function PaymentsPage() {
         body: JSON.stringify({ paymentId }),
       });
       const data = await res.json();
-      if (data.payment) {
-        setPayments((prev) => prev.map((p) => (p.id === paymentId ? { ...p, ...data.payment } : p)));
+      if (res.ok && data.payment) {
+        showToast(data.message || 'Razorpay retry successful!', 'success');
+        fetchPayments();
+      } else {
+        showToast(data.error || 'Retry failed.', 'error');
       }
     } catch {
-      alert('Retry failed.');
+      showToast('Retry request failed.', 'error');
     }
     setRetryingId(null);
   };
 
   const statusColor = (s: string) => {
     switch (s) {
-      case 'SUCCESS': return 'bg-[#d5f5d5] text-[#0a5c0a]';
-      case 'FAILED': return 'bg-[#ffdad6] text-[#93000a]';
-      case 'PROCESSING': return 'bg-[#ffddb8] text-[#2a1700]';
+      case 'SUCCESS': return 'bg-[#d5f5d5] text-[#0a5c0a] border border-emerald-300';
+      case 'FAILED': return 'bg-[#ffdad6] text-[#93000a] border border-red-300';
+      case 'PROCESSING': return 'bg-[#ffddb8] text-[#2a1700] border border-amber-300';
       case 'PENDING': return 'bg-slate-200 text-slate-700';
       default: return 'bg-slate-100 text-slate-500';
     }
   };
 
+  const filteredPayments = payments.filter((pay) => {
+    const matchesSearch = pay.worker.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (pay.razorpayPayoutId && pay.razorpayPayoutId.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (pay.worker.upiId && pay.worker.upiId.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (pay.worker.bankAccountNumber && pay.worker.bankAccountNumber.includes(searchQuery));
+
+    if (!matchesSearch) return false;
+
+    if (filterType === 'FAILED') return pay.status === 'FAILED';
+    return true;
+  });
+
   return (
     <div className="space-y-6">
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
+
+      {/* Floating Notification */}
+      {toast && (
+        <div className={`p-4 rounded-xl flex items-center justify-between text-sm shadow-xl border ${
+          toast.type === 'success' ? 'bg-emerald-950 text-white border-emerald-500' : 'bg-red-950 text-white border-red-500'
+        }`}>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[20px] text-cyan-400">
+              {toast.type === 'success' ? 'verified' : 'error'}
+            </span>
+            <span className="font-semibold">{toast.message}</span>
+          </div>
+          <button onClick={() => setToast(null)} className="text-white/80 hover:text-white ml-4">
+            <span className="material-symbols-outlined text-[18px]">close</span>
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-wrap justify-between items-start gap-4 border-b border-outline-variant/30 pb-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-primary tracking-tight">Payments & Payouts</h1>
-          <p className="text-sm text-on-surface-variant mt-1">
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl md:text-3xl font-extrabold text-primary tracking-tight">Payments & Payouts</h1>
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#0d1c32] text-cyan-400 border border-cyan-500/30 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span>Razorpay Payouts Gateway</span>
+            </div>
+            {razorpayConfig?.isSimulation && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                SANDBOX SIMULATION
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-on-surface-variant mt-1.5">
             {selectedProject ? (
-              <>Automated wage transfers for <span className="font-bold text-on-surface">{selectedProject.name}</span></>
+              <>Automated wage transfers via Razorpay for <span className="font-bold text-on-surface">{selectedProject.name}</span></>
             ) : (
-              'Select a project to view payments.'
+              'Instant UPI / Bank IMPS wage disbursements and settlement ledger.'
             )}
           </p>
         </div>
-        <div className="flex gap-3">
+
+        {/* Header Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* PRIMARY BUTTON: PAY ALL UNPAID WORKERS */}
+          <button
+            onClick={() => {
+              setPaymentScope('ALL');
+              setIsNewPaymentModalOpen(true);
+            }}
+            disabled={!selectedProject || workers.length === 0}
+            className={`h-[42px] px-4 rounded-xl font-bold text-xs flex items-center gap-2 shadow-md transition disabled:opacity-50 ${
+              unpaidWorkers.length === 0
+                ? 'bg-slate-700 text-slate-300 cursor-not-allowed'
+                : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-teal-700 text-white hover:opacity-95'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">
+              {unpaidWorkers.length === 0 ? 'check_circle' : 'group'}
+            </span>
+            <span>
+              {unpaidWorkers.length === 0
+                ? 'All Paid Today (✓)'
+                : `Pay Unpaid Workers (${unpaidWorkers.length})`}
+            </span>
+          </button>
+
+          {/* SECONDARY BUTTON: INDIVIDUAL WORKER PAYMENT */}
+          <button
+            onClick={() => {
+              setPaymentScope('SINGLE');
+              // Auto-select first unpaid worker if possible
+              const firstUnpaid = unpaidWorkers[0] || workers[0];
+              if (firstUnpaid) {
+                setNewPaymentWorkerId(firstUnpaid.id);
+                setNewPaymentAmount(String(firstUnpaid.wageRate));
+              }
+              setIsNewPaymentModalOpen(true);
+            }}
+            disabled={!selectedProject || workers.length === 0}
+            className="h-[42px] bg-[#0d1c32] text-white px-4 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow hover:bg-[#152e52] transition disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined text-[18px]">person</span>
+            <span>Single Worker</span>
+            {unpaidWorkers.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-cyan-400 text-[#0d1c32] font-black">
+                {unpaidWorkers.length}
+              </span>
+            )}
+          </button>
+
+          {/* MONTHLY PAYROLL BUTTON */}
           <button
             onClick={handleProcessMonthly}
             disabled={processingMonthly || !selectedProject}
-            className="h-[44px] bg-gradient-to-r from-[#b87500] to-[#e09800] text-white px-5 rounded-xl font-bold text-sm flex items-center gap-1.5 shadow hover:opacity-90 transition disabled:opacity-50"
+            className="h-[42px] bg-gradient-to-r from-[#b87500] to-[#e09800] text-white px-4 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow hover:opacity-90 transition disabled:opacity-50"
           >
-            <span className="material-symbols-outlined text-[20px]">account_balance</span>
-            {processingMonthly ? 'Processing...' : 'Process Monthly Payroll'}
+            <span className="material-symbols-outlined text-[18px]">account_balance</span>
+            {processingMonthly ? 'Processing...' : 'Disburse Monthly'}
           </button>
         </div>
       </div>
@@ -137,120 +590,188 @@ export default function PaymentsPage() {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-primary to-[#1a3a6e] text-white p-5 rounded-2xl shadow-lg">
-          <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Paid Today</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Paid Today (Razorpay)</p>
           <h3 className="text-2xl font-black mt-1">{INR(summary.todayPaid)}</h3>
-          <p className="text-xs opacity-60 mt-1">{summary.todayCount} transaction{summary.todayCount !== 1 ? 's' : ''}</p>
+          <p className="text-xs opacity-60 mt-1">{summary.todayCount} payout{summary.todayCount !== 1 ? 's' : ''}</p>
         </div>
+
         <div className="bg-white border border-outline-variant p-5 rounded-2xl shadow-sm">
-          <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">This Month</p>
+          <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">This Month Settled</p>
           <h3 className="text-2xl font-black mt-1 text-on-surface">{INR(summary.monthPaid)}</h3>
-          <p className="text-xs text-on-surface-variant mt-1">{summary.monthCount} payouts</p>
+          <p className="text-xs text-on-surface-variant mt-1">{summary.monthCount} transactions</p>
         </div>
+
         <div className="bg-white border border-outline-variant p-5 rounded-2xl shadow-sm">
           <div className="flex items-center gap-1.5">
             <span className="material-symbols-outlined text-[#b87500] text-[16px]">pending</span>
-            <p className="text-[10px] font-bold text-[#b87500] uppercase tracking-widest">Pending</p>
+            <p className="text-[10px] font-bold text-[#b87500] uppercase tracking-widest">Unpaid Workers Today</p>
           </div>
-          <h3 className="text-2xl font-black mt-1 text-[#b87500]">{summary.pendingCount}</h3>
+          <h3 className="text-2xl font-black mt-1 text-[#b87500]">{unpaidWorkers.length}</h3>
         </div>
+
         <div className="bg-white border border-outline-variant p-5 rounded-2xl shadow-sm">
           <div className="flex items-center gap-1.5">
             <span className="material-symbols-outlined text-[#ba1a1a] text-[16px]">error</span>
-            <p className="text-[10px] font-bold text-[#ba1a1a] uppercase tracking-widest">Failed</p>
+            <p className="text-[10px] font-bold text-[#ba1a1a] uppercase tracking-widest">Failed Payouts</p>
           </div>
           <h3 className="text-2xl font-black mt-1 text-[#ba1a1a]">{summary.failedCount}</h3>
         </div>
       </div>
 
-      {/* Type Filter Tabs */}
-      <div className="flex gap-2">
-        {(['ALL', 'DAILY', 'MONTHLY'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setFilterType(t)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-              filterType === t
-                ? 'bg-primary text-on-primary shadow'
-                : 'bg-white border border-outline-variant text-on-surface-variant hover:bg-surface-variant'
-            }`}
-          >
-            {t === 'ALL' ? 'All Payments' : t === 'DAILY' ? 'Daily Wages' : 'Monthly Salary'}
-          </button>
-        ))}
+      {/* Filter Tabs & Search */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap gap-2">
+          {(['ALL', 'DAILY', 'MONTHLY', 'PAYROLL', 'FAILED'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setFilterType(t)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                filterType === t
+                  ? 'bg-primary text-white shadow'
+                  : 'bg-white border border-outline-variant text-on-surface-variant hover:bg-surface-variant'
+              }`}
+            >
+              {t === 'ALL'
+                ? 'All Payments'
+                : t === 'DAILY'
+                  ? 'Daily Wages'
+                  : t === 'MONTHLY'
+                    ? 'Monthly Salary'
+                    : t === 'PAYROLL'
+                      ? 'Payroll Batches'
+                      : 'Failed (Retry)'}
+            </button>
+          ))}
+        </div>
+
+        <div className="w-full sm:w-72">
+          <input
+            type="text"
+            placeholder="Search by worker, Razorpay ID, UPI..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-3 py-1.5 text-xs rounded-xl border border-outline-variant bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
       </div>
 
       {/* Payment Ledger */}
       {loading ? (
-        <div className="text-center py-10 font-bold text-on-surface-variant">Loading payment records...</div>
+        <div className="text-center py-12 font-bold text-on-surface-variant">
+          <span className="material-symbols-outlined text-[32px] animate-spin text-primary">sync</span>
+          <p className="mt-2 text-sm">Loading Razorpay transaction ledger...</p>
+        </div>
       ) : (
         <div className="bg-white border border-outline-variant rounded-2xl shadow-[0_2px_12px_rgba(13,28,50,0.06)] overflow-hidden">
-          <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-3 border-b border-outline-variant bg-surface-container-low text-xs font-bold text-on-surface-variant uppercase tracking-wider">
-            <div className="col-span-3">Worker</div>
-            <div className="col-span-2">Amount</div>
+          <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-3.5 border-b border-outline-variant bg-surface-container-low text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+            <div className="col-span-3">Worker & Account</div>
+            <div className="col-span-2">Disbursed Amount</div>
             <div className="col-span-1">Type</div>
-            <div className="col-span-2">Date</div>
+            <div className="col-span-2">Date & Time</div>
             <div className="col-span-1">Status</div>
-            <div className="col-span-2">Payout ID</div>
-            <div className="col-span-1 text-right">Action</div>
+            <div className="col-span-2">Razorpay Ref ID</div>
+            <div className="col-span-1 text-right">Receipt / Action</div>
           </div>
 
           <div className="divide-y divide-outline-variant">
-            {payments.length === 0 ? (
-              <div className="p-10 text-center">
+            {filteredPayments.length === 0 ? (
+              <div className="p-12 text-center">
                 <span className="material-symbols-outlined text-[48px] text-on-surface-variant/40">payments</span>
-                <p className="text-sm text-on-surface-variant mt-2 font-bold">No payment records yet.</p>
-                <p className="text-xs text-on-surface-variant mt-1">Payments are created automatically when workers check out from attendance.</p>
+                <p className="text-sm text-on-surface-variant mt-2 font-bold">No payment records found.</p>
+                <p className="text-xs text-on-surface-variant mt-1">
+                  Click &ldquo;Pay Unpaid Workers&rdquo; or &ldquo;Single Worker&rdquo; to initiate transfers.
+                </p>
               </div>
             ) : (
-              payments.map((pay) => (
-                <div key={pay.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 px-6 py-4 items-center text-sm hover:bg-surface-container-low/40 transition-colors">
+              filteredPayments.map((pay) => (
+                <div
+                  key={pay.id}
+                  className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 px-6 py-4 items-center text-sm hover:bg-surface-container-low/40 transition-colors"
+                >
                   <div className="col-span-3">
-                    <div className="font-bold text-on-surface">{pay.worker.name}</div>
-                    <div className="text-[11px] text-on-surface-variant font-mono">
-                      {pay.worker.bankAccountNumber
-                        ? `A/C: ****${pay.worker.bankAccountNumber.slice(-4)}`
-                        : pay.worker.upiId
-                          ? `UPI: ${pay.worker.upiId}`
-                          : 'No bank details'}
+                    <div className="font-bold text-on-surface text-base">{pay.worker.name}</div>
+                    <div className="text-[11px] text-on-surface-variant font-mono mt-0.5">
+                      {pay.worker.upiId ? (
+                        <span className="inline-flex items-center gap-1 text-blue-700">
+                          <span className="material-symbols-outlined text-[12px]">smartphone</span>
+                          {pay.worker.upiId}
+                        </span>
+                      ) : pay.worker.bankAccountNumber ? (
+                        <span>A/C: ••••{pay.worker.bankAccountNumber.slice(-4)}</span>
+                      ) : (
+                        <span className="text-slate-400">No account details</span>
+                      )}
                     </div>
                   </div>
-                  <div className="col-span-2 font-black text-primary">{INR(pay.amount)}</div>
+
+                  <div className="col-span-2 font-black text-primary text-base">{INR(pay.amount)}</div>
+
                   <div className="col-span-1">
-                    <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-lg ${
-                      pay.type === 'DAILY' ? 'bg-[#d5e0f7] text-[#0d1c32]' : 'bg-purple-100 text-purple-800'
+                    <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-extrabold rounded-lg ${
+                      pay.type === 'DAILY'
+                        ? 'bg-[#d5e0f7] text-[#0d1c32]'
+                        : pay.type === 'MONTHLY'
+                          ? 'bg-purple-100 text-purple-800'
+                          : 'bg-teal-100 text-teal-800'
                     }`}>
                       {pay.type}
                     </span>
                   </div>
+
                   <div className="col-span-2 text-on-surface-variant text-xs">
-                    {new Date(pay.paymentDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    <br />
-                    <span className="text-[10px]">{new Date(pay.paymentDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <div className="font-semibold text-on-surface">
+                      {new Date(pay.paymentDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </div>
+                    <span className="text-[10px] text-on-surface-variant font-mono">
+                      {new Date(pay.paymentDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
+
                   <div className="col-span-1">
                     <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-lg ${statusColor(pay.status)}`}>
                       {pay.status}
                     </span>
                     {pay.failureReason && (
-                      <p className="text-[10px] text-[#ba1a1a] mt-0.5 truncate max-w-[150px]" title={pay.failureReason}>{pay.failureReason}</p>
+                      <p className="text-[10px] text-[#ba1a1a] mt-0.5 truncate max-w-[140px]" title={pay.failureReason}>
+                        {pay.failureReason}
+                      </p>
                     )}
                   </div>
-                  <div className="col-span-2 text-[11px] font-mono text-on-surface-variant truncate" title={pay.razorpayPayoutId || undefined}>
-                    {pay.razorpayPayoutId ? pay.razorpayPayoutId.substring(0, 20) + '...' : '—'}
+
+                  <div className="col-span-2">
+                    {pay.razorpayPayoutId ? (
+                      <button
+                        onClick={() => setSelectedVoucher(pay)}
+                        title="Click to view digital Razorpay receipt"
+                        className="text-[11px] font-mono text-primary font-bold hover:underline truncate max-w-[170px] block text-left"
+                      >
+                        {pay.razorpayPayoutId}
+                      </button>
+                    ) : (
+                      <span className="text-slate-400 font-mono text-xs">—</span>
+                    )}
                   </div>
-                  <div className="col-span-1 flex justify-end">
+
+                  <div className="col-span-1 flex justify-end gap-1.5">
                     {pay.status === 'FAILED' && (
                       <button
                         onClick={() => handleRetry(pay.id)}
                         disabled={retryingId === pay.id}
-                        className="px-3 py-1 bg-[#ba1a1a] text-white text-[10px] font-bold rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
+                        className="px-2.5 py-1 bg-[#ba1a1a] text-white text-[10px] font-bold rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-1 shadow-sm"
                       >
-                        <span className="material-symbols-outlined text-[14px]">refresh</span>
+                        <span className="material-symbols-outlined text-[13px]">refresh</span>
                         {retryingId === pay.id ? '...' : 'Retry'}
                       </button>
                     )}
+
                     {pay.status === 'SUCCESS' && (
-                      <span className="material-symbols-outlined text-[20px] text-[#0a5c0a]">check_circle</span>
+                      <button
+                        onClick={() => setSelectedVoucher(pay)}
+                        title="View Razorpay Voucher"
+                        className="p-1.5 text-primary hover:bg-slate-100 rounded-lg transition"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">receipt_long</span>
+                      </button>
                     )}
                   </div>
                 </div>
@@ -260,16 +781,639 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* Simulation Notice */}
-      <div className="bg-[#ffddb8]/30 border border-[#ffddb8] rounded-xl p-4 flex items-start gap-3">
-        <span className="material-symbols-outlined text-[#b87500] text-[20px] mt-0.5">science</span>
-        <div>
-          <p className="text-xs font-bold text-[#b87500] uppercase tracking-wider">Simulation Mode Active</p>
-          <p className="text-xs text-on-surface-variant mt-0.5">
-            Payments are being simulated — no real money is transferred. Configure Razorpay API keys in <code className="bg-white px-1 py-0.5 rounded text-[10px] font-mono border border-outline-variant">.env</code> to enable live bank transfers via IMPS/UPI.
-          </p>
+      {/* Razorpay Payment Modal (With Duplicate Payment Protection) */}
+      {isNewPaymentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-outline-variant overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="bg-[#0d1c32] text-white p-5 flex items-center justify-between border-b border-blue-900">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-cyan-400/20 flex items-center justify-center border border-cyan-400/40">
+                  <span className="material-symbols-outlined text-cyan-300 text-[18px]">
+                    {paymentScope === 'ALL' ? 'group' : 'payments'}
+                  </span>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight">
+                    {paymentScope === 'ALL' ? 'Disburse Payment to All Unpaid Workers' : 'Initiate Single Worker Payment'}
+                  </h3>
+                  <p className="text-[11px] text-cyan-200/80 font-mono">
+                    {paymentScope === 'ALL'
+                      ? `Batch payout (Duplicates automatically prevented)`
+                      : 'Direct wage transfer via Razorpay'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsNewPaymentModalOpen(false)}
+                className="text-white/70 hover:text-white p-1 rounded-lg"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Segmented Toggle: All Workers vs Single Worker */}
+              <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setPaymentScope('ALL')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
+                    paymentScope === 'ALL'
+                      ? 'bg-white text-primary shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">group</span>
+                  <span>Pay All ({unpaidWorkers.length} Unpaid)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentScope('SINGLE');
+                    const firstUnpaid = workers.find((w) => !w.isPaidToday) || workers[0];
+                    if (firstUnpaid) {
+                      setNewPaymentWorkerId(firstUnpaid.id);
+                      setNewPaymentAmount(String(firstUnpaid.wageRate));
+                    }
+                  }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
+                    paymentScope === 'SINGLE'
+                      ? 'bg-white text-primary shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">person</span>
+                  <span>Single Worker</span>
+                </button>
+              </div>
+
+              {/* VIEW 1: PAY ALL WORKERS */}
+              {paymentScope === 'ALL' ? (
+                <div className="space-y-4">
+                  {unpaidWorkers.length === 0 ? (
+                    <div className="p-5 bg-emerald-50 border border-emerald-300 rounded-xl text-center space-y-2">
+                      <span className="material-symbols-outlined text-emerald-600 text-[32px]">task_alt</span>
+                      <h3 className="font-extrabold text-emerald-900 text-sm">All Workers Already Paid Today!</h3>
+                      <p className="text-xs text-emerald-700 leading-relaxed">
+                        All {workers.length} active site personnel have already received their wage payouts today.
+                        Duplicate payments are automatically blocked.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Summary Box */}
+                      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-4 rounded-xl flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                            Total Payout for Unpaid Workers
+                          </p>
+                          <h2 className="text-2xl font-black text-emerald-700 mt-0.5">
+                            {INR(calculateTotalBatchAmount())}
+                          </h2>
+                        </div>
+                        <div className="text-right">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-600 text-white">
+                            {unpaidWorkers.length} Unpaid Today
+                          </span>
+                          {paidTodayWorkers.length > 0 && (
+                            <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                              ({paidTodayWorkers.length} already paid - skipped)
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Wage Calculation Mode for Batch */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+                            Wage Calculation Mode
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setUseCustomBatchAmount(!useCustomBatchAmount)}
+                            className="text-[11px] font-bold text-primary hover:underline"
+                          >
+                            {useCustomBatchAmount ? 'Use Enrolled Daily Rates' : 'Set Uniform Amount Each'}
+                          </button>
+                        </div>
+
+                        {useCustomBatchAmount ? (
+                          <div>
+                            <input
+                              type="number"
+                              min="1"
+                              placeholder="Enter uniform amount per worker (e.g. 1000)"
+                              value={customBatchAmount}
+                              onChange={(e) => setCustomBatchAmount(e.target.value)}
+                              className="w-full px-3 py-2 text-sm rounded-xl border border-outline-variant bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono font-bold"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">
+                              Every unpaid worker will receive ₹{customBatchAmount || '0'}. Total: {INR(calculateTotalBatchAmount())}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                            Disburses each unpaid worker&apos;s registered daily wage rate.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Worker Roster Preview with Paid / Unpaid badges */}
+                      <div>
+                        <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">
+                          Roster Status ({workers.length} Personnel)
+                        </label>
+                        <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl text-xs bg-slate-50/50">
+                          {workers.map((w) => (
+                            <div key={w.id} className={`p-2 flex justify-between items-center ${w.isPaidToday ? 'opacity-50 bg-slate-100/60' : ''}`}>
+                              <div>
+                                <span className="font-bold text-slate-800">{w.name}</span>
+                                {w.isPaidToday ? (
+                                  <span className="text-[10px] text-emerald-700 font-bold block">
+                                    ✓ Already Paid Today (₹{w.todayPayment?.amount}) — Skipped
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-500 font-mono block">
+                                    {w.upiId ? `UPI: ${w.upiId}` : w.bankAccountNumber ? `A/C ••••${w.bankAccountNumber.slice(-4)}` : 'Bank Transfer'}
+                                  </span>
+                                )}
+                              </div>
+                              <span className={`font-mono font-bold ${w.isPaidToday ? 'text-slate-400 line-through' : 'text-emerald-700'}`}>
+                                {INR(useCustomBatchAmount && customBatchAmount ? Number(customBatchAmount) : w.wageRate)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                /* VIEW 2: SINGLE WORKER */
+                <div className="space-y-4">
+                  {unpaidWorkers.length === 0 ? (
+                    <div className="p-5 bg-emerald-50 border border-emerald-300 rounded-xl text-center space-y-2">
+                      <span className="material-symbols-outlined text-emerald-600 text-[32px]">task_alt</span>
+                      <h3 className="font-extrabold text-emerald-900 text-sm">All Workers Already Paid Today!</h3>
+                      <p className="text-xs text-emerald-700 leading-relaxed">
+                        Every active worker ({workers.length} personnel) has already received their wage payout today.
+                        Duplicate disbursements to the same person on the same day are strictly prohibited.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">
+                          Select Recipient Worker
+                        </label>
+                        <select
+                          value={newPaymentWorkerId}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            setNewPaymentWorkerId(id);
+                            const w = workers.find((item) => item.id === id);
+                            if (w) setNewPaymentAmount(String(w.wageRate));
+                          }}
+                          className="w-full px-3 py-2 text-sm rounded-xl border border-outline-variant bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        >
+                          {unpaidWorkers.length > 0 && (
+                            <optgroup label="⚡ Unpaid Workers (Eligible for Payment)">
+                              {unpaidWorkers.map((w) => (
+                                <option key={w.id} value={w.id}>
+                                  {w.name} — Rate: ₹{w.wageRate}/d {w.upiId ? `(UPI: ${w.upiId})` : w.bankAccountNumber ? `(A/C: ••••${w.bankAccountNumber.slice(-4)})` : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {paidTodayWorkers.length > 0 && (
+                            <optgroup label="🔒 Already Paid Today (Payment Blocked)">
+                              {paidTodayWorkers.map((w) => (
+                                <option key={w.id} value={w.id} disabled>
+                                  ✓ [ALREADY PAID ₹{w.todayPayment?.amount}] {w.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      </div>
+
+                      {/* DUPLICATE PAYMENT WARNING IN SINGLE WORKER MODE */}
+                      {selectedWorker?.isPaidToday && (
+                        <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-xs space-y-1">
+                          <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                            <span className="material-symbols-outlined text-[16px] text-amber-600">block</span>
+                            <span>Duplicate Payment Prevented</span>
+                          </div>
+                          <p className="text-amber-800 leading-snug">
+                            <strong>{selectedWorker.name}</strong> has already received a payment of{' '}
+                            <strong>₹{selectedWorker.todayPayment?.amount}</strong> today (Ref:{' '}
+                            <span className="font-mono">{selectedWorker.todayPayment?.razorpayPayoutId || 'settled'}</span>).
+                            To protect your account, duplicate payments to the same person on the same day are blocked.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">
+                            Amount (INR ₹)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            disabled={selectedWorker?.isPaidToday}
+                            value={newPaymentAmount}
+                            onChange={(e) => setNewPaymentAmount(e.target.value)}
+                            placeholder="e.g. 850"
+                            className="w-full px-3 py-2 text-sm rounded-xl border border-outline-variant bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono font-bold disabled:bg-slate-100 disabled:opacity-60"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">
+                            Classification
+                          </label>
+                          <select
+                            value={newPaymentType}
+                            disabled={selectedWorker?.isPaidToday}
+                            onChange={(e) => setNewPaymentType(e.target.value as any)}
+                            className="w-full px-3 py-2 text-sm rounded-xl border border-outline-variant bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:opacity-60"
+                          >
+                            <option value="DAILY">Daily Wage</option>
+                            <option value="MONTHLY">Monthly Salary</option>
+                            <option value="BONUS">Bonus / Overtime</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {(() => {
+                        const w = selectedWorker;
+                        if (!w) return null;
+                        return (
+                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+                            <p className="font-bold text-slate-800">Destination Account Preview:</p>
+                            <p className="text-slate-600 font-mono">
+                              {w.upiId ? `Verified UPI ID: ${w.upiId}` : w.bankAccountNumber ? `Bank A/C: ${w.bankAccountNumber} (${w.ifscCode})` : '⚠️ No bank or UPI configured'}
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Execution Options */}
+              <div className="pt-2 space-y-2.5">
+                <p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                  Choose Razorpay Execution Method:
+                </p>
+
+                {paymentScope === 'SINGLE' && selectedWorker?.isPaidToday ? (
+                  <div className="p-4 bg-red-50 border border-red-300 rounded-xl text-center space-y-1.5">
+                    <div className="flex items-center justify-center gap-1.5 text-red-800 font-extrabold text-xs">
+                      <span className="material-symbols-outlined text-[18px]">lock</span>
+                      <span>DUPLICATE PAYMENT BLOCKED</span>
+                    </div>
+                    <p className="text-xs text-red-700">
+                      <strong>{selectedWorker.name}</strong> was already paid <strong>₹{selectedWorker.todayPayment?.amount}</strong> today.
+                      Duplicate payouts to the same person on the same calendar day are strictly disallowed.
+                    </p>
+                  </div>
+                ) : (paymentScope === 'ALL' || paymentScope === 'SINGLE') && unpaidWorkers.length === 0 ? (
+                  <div className="p-4 bg-slate-100 border border-slate-200 rounded-xl text-center text-xs font-bold text-slate-600">
+                    All workers have already been paid today. No pending disbursements.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      onClick={handleInstantRazorpayTransfer}
+                      disabled={
+                        isSubmittingPayment ||
+                        (paymentScope === 'SINGLE' && selectedWorker?.isPaidToday) ||
+                        (paymentScope === 'ALL' && unpaidWorkers.length === 0)
+                      }
+                      className="p-3.5 bg-gradient-to-br from-[#0d1c32] to-[#1c3a6b] text-white rounded-xl text-left hover:opacity-95 transition border border-blue-900 shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <div className="flex items-center gap-1.5 text-cyan-300 font-bold text-xs mb-1">
+                        <span className="material-symbols-outlined text-[16px]">bolt</span>
+                        <span>
+                          {paymentScope === 'ALL' ? 'Instant Payout to Unpaid' : 'RazorpayX Instant'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-blue-100/80 leading-snug">
+                        {paymentScope === 'ALL'
+                          ? `Directly credit remaining ${unpaidWorkers.length} unpaid workers via UPI / Bank IMPS.`
+                          : "Disburse directly to worker's UPI or Bank account via IMPS."}
+                      </p>
+                    </button>
+
+                    <button
+                      onClick={handleRazorpayCheckout}
+                      disabled={
+                        isSubmittingPayment ||
+                        (paymentScope === 'SINGLE' && selectedWorker?.isPaidToday) ||
+                        (paymentScope === 'ALL' && unpaidWorkers.length === 0)
+                      }
+                      className="p-3.5 bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-xl text-left hover:opacity-95 transition border border-slate-700 shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs mb-1">
+                        <span className="material-symbols-outlined text-[16px]">credit_card</span>
+                        <span>
+                          {paymentScope === 'ALL' ? 'Batch Razorpay Checkout' : 'Razorpay Checkout'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-300/80 leading-snug">
+                        {paymentScope === 'ALL'
+                          ? `Pay consolidated ${INR(calculateTotalBatchAmount())} for unpaid personnel.`
+                          : 'Open payment popup (Card, UPI QR, NetBanking, GPay).'}
+                      </p>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-outline-variant flex justify-end">
+              <button
+                onClick={() => setIsNewPaymentModalOpen(false)}
+                disabled={isSubmittingPayment}
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-outline-variant bg-white text-on-surface hover:bg-slate-100"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Built-in Interactive Simulated Razorpay Checkout Gateway Modal */}
+      {simulatedCheckoutOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-700 overflow-hidden">
+            {/* Top Razorpay Header */}
+            <div className="bg-[#0c2340] text-white p-5 flex items-center justify-between border-b border-blue-900">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/30 flex items-center justify-center border border-blue-400/40">
+                  <span className="text-cyan-400 font-black text-lg italic">R</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-black tracking-wide text-white text-base">Razorpay</span>
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded">
+                      Sandbox
+                    </span>
+                  </div>
+                  <p className="text-xs text-blue-200 font-medium">SiteTrack Construction Platform</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSimulatedCheckoutOrder(null)}
+                className="text-white/70 hover:text-white p-1 rounded-lg"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Amount Banner */}
+            <div className="bg-slate-50 border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Recipient Scope</span>
+                <p className="font-bold text-slate-900 text-sm">{simulatedCheckoutOrder.workerName}</p>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                  {simulatedCheckoutOrder.isBulk ? 'Total Batch Amount' : 'Amount'}
+                </span>
+                <h3 className="text-xl font-black text-slate-900">{INR(simulatedCheckoutOrder.amount)}</h3>
+              </div>
+            </div>
+
+            {/* Payment Method Selector Tabs */}
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-3 gap-2 border-b border-slate-200 pb-3">
+                {[
+                  { id: 'UPI', label: 'UPI / QR', icon: 'qr_code_2' },
+                  { id: 'CARD', label: 'Cards', icon: 'credit_card' },
+                  { id: 'NETBANKING', label: 'NetBanking', icon: 'account_balance' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setCheckoutPaymentTab(tab.id as any)}
+                    className={`p-2 rounded-xl text-xs font-bold flex flex-col items-center gap-1 transition ${
+                      checkoutPaymentTab === tab.id
+                        ? 'bg-blue-50 text-blue-700 border border-blue-300'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab 1: UPI */}
+              {checkoutPaymentTab === 'UPI' && (
+                <div className="space-y-3">
+                  <div className="p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold flex items-center justify-center text-xs">
+                        UPI
+                      </div>
+                      <div>
+                        <p className="font-bold text-xs text-slate-800">Scan & Pay via any UPI App</p>
+                        <p className="text-[11px] text-slate-500">Google Pay, PhonePe, Paytm, CRED</p>
+                      </div>
+                    </div>
+                    <span className="material-symbols-outlined text-blue-700 text-[22px]">qr_code_scanner</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex justify-between items-center font-mono">
+                    <span className="text-slate-500">Virtual Payment Address:</span>
+                    <span className="font-bold text-slate-800">sitetrack.payroll@okhdfcbank</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 2: Test Cards */}
+              {checkoutPaymentTab === 'CARD' && (
+                <div className="space-y-3">
+                  <div className="p-4 bg-gradient-to-r from-slate-900 to-blue-950 text-white rounded-xl text-xs font-mono shadow">
+                    <div className="flex justify-between items-center text-[10px] text-slate-400 mb-2">
+                      <span>RAZORPAY TEST CARD</span>
+                      <span className="font-bold text-white">VISA</span>
+                    </div>
+                    <p className="text-base font-bold tracking-widest text-slate-100">4111 2222 3333 4444</p>
+                    <div className="flex justify-between text-[11px] text-slate-300 mt-3">
+                      <span>EXP: 12/28</span>
+                      <span>CVV: 123</span>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 text-center font-medium">
+                    Test Mode: Simulated Visa credentials pre-filled automatically.
+                  </p>
+                </div>
+              )}
+
+              {/* Tab 3: NetBanking */}
+              {checkoutPaymentTab === 'NETBANKING' && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-600">Select Bank</label>
+                  <select
+                    value={selectedBank}
+                    onChange={(e) => setSelectedBank(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-semibold"
+                  >
+                    <option value="HDFC Bank">HDFC Bank</option>
+                    <option value="State Bank of India">State Bank of India (SBI)</option>
+                    <option value="ICICI Bank">ICICI Bank</option>
+                    <option value="Axis Bank">Axis Bank</option>
+                    <option value="Kotak Mahindra Bank">Kotak Mahindra Bank</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="pt-3 space-y-2">
+                <button
+                  onClick={handleSimulatedCheckoutSuccess}
+                  disabled={isSubmittingPayment}
+                  className="w-full py-3 bg-[#0c2340] hover:bg-[#153a6b] text-white font-extrabold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isSubmittingPayment ? (
+                    <>
+                      <span className="material-symbols-outlined text-[16px] animate-spin">sync</span>
+                      <span>Verifying Payment...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-[16px] text-cyan-400">lock</span>
+                      <span>
+                        Pay {INR(simulatedCheckoutOrder.amount)} (Simulate Success)
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                <div className="flex justify-between items-center text-xs pt-1">
+                  <button
+                    onClick={() => {
+                      showToast('Payment rejected in simulation test.', 'error');
+                      setSimulatedCheckoutOrder(null);
+                    }}
+                    className="text-red-600 hover:text-red-700 font-bold"
+                  >
+                    Simulate Failure
+                  </button>
+                  <button
+                    onClick={() => setSimulatedCheckoutOrder(null)}
+                    className="text-slate-500 hover:text-slate-700 font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-400 pt-1">
+                <span className="material-symbols-outlined text-[12px]">shield</span>
+                <span>Secured by Razorpay Standard 256-bit Encryption</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Digital Payment Receipt / Voucher Modal */}
+      {selectedVoucher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-outline-variant overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-[#0d1c32] text-white p-5 flex items-center justify-between border-b border-blue-900">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-cyan-400/20 flex items-center justify-center border border-cyan-400/40">
+                  <span className="material-symbols-outlined text-cyan-300 text-[18px]">verified</span>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight">Payment Voucher</h3>
+                  <p className="text-[11px] text-cyan-200/80 font-mono">SiteTrack AI × Razorpay Verified Settlement</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedVoucher(null)}
+                className="text-white/70 hover:text-white p-1 rounded-lg"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Disbursed Amount</span>
+                  <h2 className="text-2xl font-black text-emerald-700">{INR(selectedVoucher.amount)}</h2>
+                </div>
+                <div className="text-right">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-600 text-white shadow-sm">
+                    <span className="material-symbols-outlined text-[12px]">check</span>
+                    {selectedVoucher.status}
+                  </span>
+                  <p className="text-[10px] text-emerald-800 mt-1 font-mono">
+                    {new Date(selectedVoucher.paymentDate).toLocaleString('en-IN')}
+                  </p>
+                </div>
+              </div>
+
+              <div className="border border-outline-variant rounded-xl divide-y divide-outline-variant text-xs">
+                <div className="p-3 flex justify-between bg-surface-container-low/40">
+                  <span className="text-on-surface-variant font-medium">Beneficiary Worker</span>
+                  <span className="font-bold text-on-surface">{selectedVoucher.worker.name}</span>
+                </div>
+                <div className="p-3 flex justify-between">
+                  <span className="text-on-surface-variant font-medium">Razorpay Reference ID</span>
+                  <span className="font-mono font-bold text-primary select-all">
+                    {selectedVoucher.razorpayPayoutId || 'sim_payout_auto'}
+                  </span>
+                </div>
+                <div className="p-3 flex justify-between bg-surface-container-low/40">
+                  <span className="text-on-surface-variant font-medium">Destination Account</span>
+                  <span className="font-mono font-bold text-on-surface">
+                    {selectedVoucher.worker.upiId
+                      ? `UPI: ${selectedVoucher.worker.upiId}`
+                      : selectedVoucher.worker.bankAccountNumber
+                        ? `A/C ••••${selectedVoucher.worker.bankAccountNumber.slice(-4)}`
+                        : 'Bank IMPS'}
+                  </span>
+                </div>
+                <div className="p-3 flex justify-between">
+                  <span className="text-on-surface-variant font-medium">Payment Type</span>
+                  <span className="font-bold uppercase text-on-surface">{selectedVoucher.type}</span>
+                </div>
+                <div className="p-3 flex justify-between bg-surface-container-low/40">
+                  <span className="text-on-surface-variant font-medium">Settlement Gateway</span>
+                  <span className="font-bold text-on-surface">RazorpayX Direct API</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-outline-variant flex justify-end gap-2">
+              <button
+                onClick={() => setSelectedVoucher(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-outline-variant bg-white text-on-surface hover:bg-slate-100"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-white hover:bg-primary/90 flex items-center gap-1 shadow-sm"
+              >
+                <span className="material-symbols-outlined text-[16px]">print</span>
+                Print Voucher
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

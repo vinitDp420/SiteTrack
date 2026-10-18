@@ -18,6 +18,7 @@ export async function GET(req: Request) {
       include: {
         worker: {
           select: {
+            id: true,
             name: true,
             phone: true,
             wageRate: true,
@@ -26,11 +27,12 @@ export async function GET(req: Request) {
         },
         project: {
           select: {
+            id: true,
             name: true,
           },
         },
       },
-      take: 100,
+      take: 150,
     });
 
     return NextResponse.json(logs);
@@ -42,10 +44,21 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { workerId, projectId, manualBackup, latitude, longitude } = body;
+    const {
+      workerId,
+      projectId,
+      manualBackup,
+      latitude,
+      longitude,
+      date,
+      checkInTime,
+      checkOutTime,
+      hoursWorked,
+      status,
+    } = body;
 
-    if (!workerId || !projectId) {
-      return NextResponse.json({ error: 'workerId and projectId are required.' }, { status: 400 });
+    if (!workerId) {
+      return NextResponse.json({ error: 'Worker is required.' }, { status: 400 });
     }
 
     // Find worker by ID or phone
@@ -64,39 +77,86 @@ export async function POST(req: Request) {
     }
 
     const actualWorkerId = worker.id;
+    const targetProjectId = projectId || worker.projectId;
 
-    // Check if already checked in today and not checked out
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const activeSession = await prisma.attendance.findFirst({
-      where: {
-        workerId: actualWorkerId,
-        checkOutTime: null,
-        date: { gte: today },
-      },
-    });
+    // Parse Dates
+    const shiftDate = date ? new Date(date) : new Date();
+    const parsedCheckIn = checkInTime ? new Date(checkInTime) : new Date();
+    let parsedCheckOut: Date | null = checkOutTime ? new Date(checkOutTime) : null;
 
-    if (activeSession) {
-      return NextResponse.json({ error: 'Worker is already checked in.', session: activeSession }, { status: 400 });
+    let computedHoursWorked: number | null = null;
+    let attendanceStatus = status || 'ON_SITE';
+
+    if (parsedCheckOut) {
+      if (parsedCheckOut.getTime() <= parsedCheckIn.getTime()) {
+        return NextResponse.json({ error: 'Check-out time must be after check-in time.' }, { status: 400 });
+      }
+      const diffMs = parsedCheckOut.getTime() - parsedCheckIn.getTime();
+      computedHoursWorked = hoursWorked !== undefined && hoursWorked !== null
+        ? Number(hoursWorked)
+        : parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2));
+
+      if (!status) {
+        attendanceStatus = computedHoursWorked >= 7 ? 'PRESENT' : 'HALF_DAY';
+      }
+    } else {
+      // If no check-out time provided, check if already actively checked in
+      const today = new Date(shiftDate);
+      today.setHours(0, 0, 0, 0);
+      const activeSession = await prisma.attendance.findFirst({
+        where: {
+          workerId: actualWorkerId,
+          checkOutTime: null,
+          date: { gte: today },
+        },
+      });
+
+      if (activeSession) {
+        return NextResponse.json({
+          error: `${worker.name} is already checked in on site. Clock them out first or specify a completed shift.`,
+          session: activeSession
+        }, { status: 400 });
+      }
     }
+
+    const isManual = manualBackup !== undefined ? !!manualBackup : true;
 
     const log = await prisma.attendance.create({
       data: {
         workerId: actualWorkerId,
-        projectId,
-        checkInTime: new Date(),
-        date: new Date(),
-        status: 'ON_SITE',
-        manualBackup: !!manualBackup,
+        projectId: targetProjectId,
+        date: shiftDate,
+        checkInTime: parsedCheckIn,
+        checkOutTime: parsedCheckOut,
+        hoursWorked: computedHoursWorked,
+        status: attendanceStatus,
+        manualBackup: isManual,
         latitude: latitude ? parseFloat(latitude) : null,
         longitude: longitude ? parseFloat(longitude) : null,
       },
       include: {
-        worker: true,
+        worker: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            wageRate: true,
+            paymentType: true,
+          },
+        },
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 
-    return NextResponse.json({ message: 'Checked in successfully.', session: log });
+    return NextResponse.json({
+      message: parsedCheckOut ? 'Manual shift attendance recorded successfully.' : 'Checked in successfully.',
+      session: log
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -105,58 +165,81 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const body = await req.json();
-    const { workerId } = body;
+    const { workerId, attendanceId, checkOutTime, hoursWorked } = body;
 
-    if (!workerId) {
-      return NextResponse.json({ error: 'workerId is required.' }, { status: 400 });
+    if (!workerId && !attendanceId) {
+      return NextResponse.json({ error: 'workerId or attendanceId is required.' }, { status: 400 });
     }
 
-    // Find worker by ID or phone
-    const worker = await prisma.worker.findFirst({
-      where: {
-        OR: [
-          { id: workerId },
-          { phone: { contains: workerId } }
-        ]
+    let activeSession = null;
+
+    if (attendanceId) {
+      activeSession = await prisma.attendance.findUnique({
+        where: { id: attendanceId },
+        include: { worker: true },
+      });
+    } else {
+      // Find worker by ID or phone
+      const worker = await prisma.worker.findFirst({
+        where: {
+          OR: [
+            { id: workerId },
+            { phone: { contains: workerId } }
+          ]
+        }
+      });
+
+      if (!worker) {
+        return NextResponse.json({ error: 'Worker not found.' }, { status: 404 });
       }
-    });
 
-    if (!worker) {
-      return NextResponse.json({ error: 'Worker not found.' }, { status: 404 });
+      // Find the active session (status is ON_SITE or checkOutTime is null)
+      activeSession = await prisma.attendance.findFirst({
+        where: {
+          workerId: worker.id,
+          checkOutTime: null,
+        },
+        include: {
+          worker: true,
+        },
+      });
     }
-
-    const actualWorkerId = worker.id;
-
-    // Find the active session (status is ON_SITE or checkOutTime is null)
-    const activeSession = await prisma.attendance.findFirst({
-      where: {
-        workerId: actualWorkerId,
-        checkOutTime: null,
-      },
-      include: {
-        worker: true,
-      },
-    });
 
     if (!activeSession) {
-      return NextResponse.json({ error: 'No active session found for this worker.' }, { status: 404 });
+      return NextResponse.json({ error: 'No active check-in session found to clock out.' }, { status: 404 });
     }
 
-    const checkOutTime = new Date();
+    const finalCheckOutTime = checkOutTime ? new Date(checkOutTime) : new Date();
     const checkInTime = new Date(activeSession.checkInTime);
     // Calculate hours worked
-    const diffMs = checkOutTime.getTime() - checkInTime.getTime();
-    const hoursWorked = parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2));
+    const diffMs = finalCheckOutTime.getTime() - checkInTime.getTime();
+    const computedHours = hoursWorked !== undefined && hoursWorked !== null
+      ? Number(hoursWorked)
+      : parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2));
 
     const updatedSession = await prisma.attendance.update({
       where: { id: activeSession.id },
       data: {
-        checkOutTime,
-        hoursWorked,
-        status: 'PRESENT',
+        checkOutTime: finalCheckOutTime,
+        hoursWorked: computedHours,
+        status: computedHours >= 7 ? 'PRESENT' : 'HALF_DAY',
       },
       include: {
-        worker: true,
+        worker: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            wageRate: true,
+            paymentType: true,
+          },
+        },
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 
@@ -164,7 +247,7 @@ export async function PUT(req: Request) {
     let paymentResult = null;
     if (activeSession.worker.paymentType === 'DAILY') {
       try {
-        paymentResult = await processDailyPayoutForWorker(actualWorkerId);
+        paymentResult = await processDailyPayoutForWorker(activeSession.workerId);
       } catch (err: any) {
         console.error('Failed to trigger daily payout on check-out:', err.message);
       }
