@@ -101,7 +101,7 @@ export async function POST(req: Request) {
       keyId: orderRes.keyId,
       workerName,
       description,
-      isSimulation: orderRes.isSimulation ?? true,
+      isSimulation: orderRes.isSimulation ?? false,
     });
   } catch (error: any) {
     console.error('Error in /api/payments/create-order:', error);

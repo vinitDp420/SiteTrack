@@ -87,7 +87,7 @@ async function simulatePayout(req: PayoutRequest): Promise<PayoutResult> {
 async function livePayout(req: PayoutRequest): Promise<PayoutResult> {
   const keyId = process.env.RAZORPAY_KEY_ID!;
   const keySecret = process.env.RAZORPAY_KEY_SECRET!;
-  const accountNumber = process.env.RAZORPAY_ACCOUNT_NUMBER!;
+  const accountNumber = process.env.RAZORPAY_ACCOUNT_NUMBER || '2323230041626905';
   const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
   const transferMode = req.upiId ? 'UPI' : 'IMPS';
   const destination = req.upiId || (req.bankAccountNumber ? `A/C ••••${req.bankAccountNumber.slice(-4)}` : 'Bank Transfer');
@@ -269,6 +269,7 @@ export async function createRazorpayOrder(req: CreateOrderRequest): Promise<Crea
         amount: data.amount,
         currency: data.currency,
         keyId,
+        isSimulation: false,
       };
     } else {
       return {
