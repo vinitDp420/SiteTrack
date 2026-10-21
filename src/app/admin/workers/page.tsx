@@ -38,6 +38,7 @@ export default function WorkersPage() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -241,12 +242,25 @@ export default function WorkersPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Remove this worker from the roster?')) return;
+  const handleDelete = async (id: string, workerName?: string) => {
+    if (!window.confirm(`Are you sure you want to remove ${workerName || 'this worker'} from the roster? All associated attendance, shifts, and payment records will be permanently cleaned up.`)) {
+      return;
+    }
+
+    setDeletingId(id);
     try {
-      await fetch(`/api/workers/${id}`, { method: 'DELETE' });
-      fetchWorkers();
-    } catch { alert('Failed to delete.'); }
+      const res = await fetch(`/api/workers/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to delete worker.');
+      } else {
+        await fetchWorkers();
+      }
+    } catch (err: any) {
+      alert('Network or server error while deleting worker.');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const filtered = workers.filter(
@@ -367,8 +381,17 @@ export default function WorkersPage() {
                   <button onClick={() => openEditModal(worker)} className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-variant rounded-lg transition-all" title="Edit">
                     <span className="material-symbols-outlined text-[18px]">edit</span>
                   </button>
-                  <button onClick={() => handleDelete(worker.id)} className="p-2 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg transition-all" title="Delete">
-                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                  <button
+                    onClick={() => handleDelete(worker.id, worker.name)}
+                    disabled={deletingId === worker.id}
+                    className="p-2 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg transition-all disabled:opacity-40 cursor-pointer"
+                    title={`Delete ${worker.name}`}
+                  >
+                    {deletingId === worker.id ? (
+                      <span className="material-symbols-outlined text-[18px] animate-spin">refresh</span>
+                    ) : (
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    )}
                   </button>
                 </div>
               </div>

@@ -82,6 +82,26 @@ export default function BOQPage() {
     }
   };
 
+  const handleExportCSV = () => {
+    if (items.length === 0) return;
+    const headers = ['Description', 'Unit', 'Quantity', 'Estimated Cost (INR)', 'Project'];
+    const rows = items.map((item) => [
+      `"${item.description.replace(/"/g, '""')}"`,
+      `"${item.unit}"`,
+      item.quantity,
+      item.estimatedCost,
+      `"${selectedProject?.name || ''}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `BOQ_${selectedProject?.code || 'Export'}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const totalBudget = items.reduce((sum, item) => sum + item.estimatedCost, 0);
 
   return (
@@ -99,12 +119,23 @@ export default function BOQPage() {
           </p>
         </div>
         {selectedProject && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="bg-primary text-on-primary font-bold text-xs uppercase tracking-wider px-4 py-2 rounded-lg flex items-center gap-1.5 shadow active:scale-[0.98]"
-          >
-            <span className="material-symbols-outlined text-[18px]">add</span> Add Item
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportCSV}
+              disabled={items.length === 0}
+              className="bg-white border border-outline-variant hover:bg-slate-50 text-on-surface font-bold text-xs uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-sm active:scale-[0.98] transition disabled:opacity-50"
+              title="Export BOQ items to CSV / Excel spreadsheet"
+            >
+              <span className="material-symbols-outlined text-[18px] text-emerald-600">download</span>
+              Export CSV
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="bg-primary text-on-primary font-bold text-xs uppercase tracking-wider px-4 py-2 rounded-lg flex items-center gap-1.5 shadow active:scale-[0.98]"
+            >
+              <span className="material-symbols-outlined text-[18px]">add</span> Add Item
+            </button>
+          </div>
         )}
       </div>
 

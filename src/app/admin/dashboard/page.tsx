@@ -20,6 +20,7 @@ export default function AdminDashboard() {
   const { selectedProject } = useProject();
   const [activeWorkersCount, setActiveWorkersCount] = useState(0);
   const [tasksCount, setTasksCount] = useState(0);
+  const [activeAlertsCount, setActiveAlertsCount] = useState(0);
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
 
   const role = (session?.user as any)?.role || 'SUPERVISOR';
@@ -31,6 +32,16 @@ export default function AdminDashboard() {
       .then((data) => {
         if (Array.isArray(data)) {
           setActiveWorkersCount(data.filter((w) => w.status === 'ACTIVE').length);
+        }
+      })
+      .catch((e) => console.error(e));
+
+    // Fetch live active fraud & safety alerts
+    fetch('/api/fraud-alerts')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.stats) {
+          setActiveAlertsCount(data.stats.pending + data.stats.investigating);
         }
       })
       .catch((e) => console.error(e));
@@ -147,21 +158,26 @@ export default function AdminDashboard() {
 
         {/* Metric 4 */}
         {role === 'ADMIN' ? (
-          <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl shadow-[0_2px_8px_rgba(13,28,50,0.05)]">
+          <Link
+            href="/admin/fraud-alerts"
+            className="block bg-surface-container-lowest border border-outline-variant hover:border-red-300 transition-all p-6 rounded-xl shadow-[0_2px_8px_rgba(13,28,50,0.05)] group cursor-pointer"
+          >
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-xs font-bold text-[#ba1a1a] uppercase tracking-wider">Active Alerts</p>
-                <h3 className="text-3xl font-bold text-[#ba1a1a] mt-2">1</h3>
+                <p className="text-xs font-bold text-[#ba1a1a] uppercase tracking-wider group-hover:underline">
+                  Active Alerts
+                </p>
+                <h3 className="text-3xl font-bold text-[#ba1a1a] mt-2">{activeAlertsCount}</h3>
               </div>
-              <div className="p-3 bg-[#ffdad6] text-[#93000a] rounded-lg">
+              <div className="p-3 bg-[#ffdad6] text-[#93000a] rounded-lg group-hover:scale-105 transition-transform">
                 <span className="material-symbols-outlined text-[24px]">warning</span>
               </div>
             </div>
             <p className="text-xs text-[#ba1a1a] mt-4 flex items-center gap-1 font-bold">
               <span className="material-symbols-outlined text-[16px]">error</span>
-              1 mismatch flagged at Gate 1
+              {activeAlertsCount > 0 ? `${activeAlertsCount} anomalies require review` : 'All sites in compliance'}
             </p>
-          </div>
+          </Link>
         ) : (
           <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl shadow-[0_2px_8px_rgba(13,28,50,0.05)]">
             <div className="flex justify-between items-start">

@@ -212,7 +212,7 @@ export async function POST(req: Request) {
       },
     });
 
-    return {
+    return NextResponse.json({
       success: payoutRes.success,
       message: payoutRes.success
         ? `₹${payoutAmount} disbursed to ${worker.name} via Razorpay ${payoutRes.transferMode || (worker.upiId ? 'UPI' : 'Bank IMPS')} (Ref: ${payoutRes.payoutId}).`
@@ -220,7 +220,7 @@ export async function POST(req: Request) {
       payment: updatedPayment,
       payoutId: payoutRes.payoutId,
       transferMode: payoutRes.transferMode,
-    };
+    });
   } catch (error: any) {
     console.error('Error in /api/payments/disburse:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

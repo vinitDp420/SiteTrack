@@ -23,20 +23,29 @@ export const authOptions: NextAuthOptions = {
           ? [{ worker: { phone: { contains: input } } }, { worker: { phone: { contains: digits.slice(-5) } } }]
           : [];
 
-        // Support full email, username shorthand ('supervisor', 'worker', 'admin'), or worker phone
-        const user = await prisma.user.findFirst({
+        // Support full email, username shorthand ('supervisor', 'worker', 'admin'), worker name, or worker phone
+        let user = await prisma.user.findFirst({
           where: {
             OR: [
               { email: inputLower },
               { email: `${inputLower}@sitetrack.com` },
+              { worker: { name: { contains: input, mode: 'insensitive' } } },
               ...phoneConditions,
             ],
           },
           include: { worker: true },
         });
 
+        // If user typed 'worker' and specific account not found, fallback to any active worker
+        if (!user && (inputLower === 'worker' || inputLower === 'worker@sitetrack.com')) {
+          user = await prisma.user.findFirst({
+            where: { role: 'WORKER' },
+            include: { worker: true },
+          });
+        }
+
         if (!user) {
-          throw new Error('No user found with this email or username.');
+          throw new Error('No user found with this email, name, or phone number.');
         }
 
         let isValid = bcrypt.compareSync(credentials.password, user.passwordHash);

@@ -179,15 +179,76 @@ export default function ProcurementPage() {
     }
   };
 
+  const handleExportCSV = () => {
+    let headers: string[] = [];
+    let rows: (string | number)[][] = [];
+    let filename = '';
+
+    if (activeTab === 'requests') {
+      if (requests.length === 0) return;
+      headers = ['Item Name', 'Quantity', 'Unit', 'Status', 'Requested By', 'Approved By', 'Supplier', 'Project'];
+      rows = requests.map((r) => [
+        `"${r.itemName.replace(/"/g, '""')}"`,
+        r.quantity,
+        `"${r.unit}"`,
+        `"${r.status}"`,
+        `"${r.requestedBy?.name || 'Unknown'}"`,
+        `"${r.approvedBy?.name || 'Pending'}"`,
+        `"${r.supplier?.name || 'Unassigned'}"`,
+        `"${selectedProject?.name || ''}"`,
+      ]);
+      filename = `MaterialRequests_${selectedProject?.code || 'Export'}_${new Date().toISOString().slice(0, 10)}.csv`;
+    } else if (activeTab === 'stock') {
+      if (stock.length === 0) return;
+      headers = ['Item Name', 'Quantity On Hand', 'Unit', 'Project'];
+      rows = stock.map((s) => [
+        `"${s.itemName.replace(/"/g, '""')}"`,
+        s.quantityOnHand,
+        `"${s.unit}"`,
+        `"${selectedProject?.name || ''}"`,
+      ]);
+      filename = `StockInventory_${selectedProject?.code || 'Export'}_${new Date().toISOString().slice(0, 10)}.csv`;
+    } else {
+      if (suppliers.length === 0) return;
+      headers = ['Supplier Name', 'Phone', 'Materials Supplied'];
+      rows = suppliers.map((sup) => [
+        `"${sup.name.replace(/"/g, '""')}"`,
+        `"${sup.phone || ''}"`,
+        `"${(sup.materialsSupplied || '').replace(/"/g, '""')}"`,
+      ]);
+      filename = `Suppliers_${new Date().toISOString().slice(0, 10)}.csv`;
+    }
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const currentTabCount = activeTab === 'requests' ? requests.length : activeTab === 'stock' ? stock.length : suppliers.length;
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center border-b border-outline-variant/30 pb-4">
+      <div className="flex flex-wrap justify-between items-center gap-4 border-b border-outline-variant/30 pb-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-primary tracking-tight">Procurement & Inventory</h1>
           <p className="text-sm text-on-surface-variant mt-1">Manage purchase workflows and stock levels.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            disabled={currentTabCount === 0}
+            className="bg-white border border-outline-variant hover:bg-slate-50 text-on-surface font-bold text-xs uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-sm active:scale-[0.98] transition disabled:opacity-50"
+            title="Export active table to CSV / Excel"
+          >
+            <span className="material-symbols-outlined text-[18px] text-emerald-600">download</span>
+            Export CSV
+          </button>
           {activeTab === 'requests' && (
             <button
               onClick={() => setShowRequestModal(true)}

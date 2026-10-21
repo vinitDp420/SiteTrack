@@ -101,19 +101,17 @@ export async function POST(req: Request) {
       }
     } else {
       // If no check-out time provided, check if already actively checked in
-      const today = new Date(shiftDate);
-      today.setHours(0, 0, 0, 0);
       const activeSession = await prisma.attendance.findFirst({
         where: {
           workerId: actualWorkerId,
           checkOutTime: null,
-          date: { gte: today },
         },
+        orderBy: { checkInTime: 'desc' },
       });
 
       if (activeSession) {
         return NextResponse.json({
-          error: `${worker.name} is already checked in on site. Clock them out first or specify a completed shift.`,
+          error: `${worker.name} is already checked in on site. Scan face again to Clock Out.`,
           session: activeSession
         }, { status: 400 });
       }
@@ -199,6 +197,7 @@ export async function PUT(req: Request) {
           workerId: worker.id,
           checkOutTime: null,
         },
+        orderBy: { checkInTime: 'desc' },
         include: {
           worker: true,
         },

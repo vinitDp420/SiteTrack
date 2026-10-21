@@ -29,7 +29,7 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-grow flex flex-col p-6 max-w-md mx-auto w-full">{children}</main>
+      <main className="flex-grow flex flex-col p-6 pb-28 max-w-md mx-auto w-full">{children}</main>
 
       {/* Bottom Nav Bar (Mobile View) */}
       <nav className="fixed bottom-0 left-0 w-full bg-white border-t border-outline-variant shadow-lg flex justify-around items-center px-2 py-2 pb-safe z-50">

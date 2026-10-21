@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
       where: projectId ? { projectId } : undefined,
       include: {
         project: true,
+        faceEmbeddings: true,
         user: {
           select: {
             id: true,

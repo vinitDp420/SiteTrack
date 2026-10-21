@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { fetchWithCache } from './swr-cache';
 
 export interface Project {
   id: string;
@@ -30,13 +31,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/projects')
-      .then((r) => r.json())
+    fetchWithCache<Project[]>('/api/projects', 15000)
       .then((data: Project[]) => {
         if (Array.isArray(data) && data.length > 0) {
           setProjects(data);
           // Restore last selection from localStorage
-          const saved = localStorage.getItem('selectedProjectId');
+          const saved = typeof window !== 'undefined' ? localStorage.getItem('selectedProjectId') : null;
           const match = saved ? data.find((p) => p.id === saved) : null;
           setSelectedProjectState(match || data[0]);
         }

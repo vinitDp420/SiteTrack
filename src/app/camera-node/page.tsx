@@ -104,20 +104,23 @@ export default function CameraNode() {
 
         {/* HTTP Restriction Alert & Solution */}
         {httpRestriction && (
-          <div className="mb-4 bg-amber-950/80 border border-amber-600/60 p-4 rounded-xl text-xs text-amber-200 space-y-2">
+          <div className="mb-4 bg-amber-950/85 border border-amber-600/70 p-4 rounded-xl text-xs text-amber-200 space-y-2">
             <div className="flex items-center gap-1.5 font-bold text-amber-300">
               <span className="material-symbols-outlined text-[18px]">security</span>
-              Mobile Chrome HTTP Restriction Detected
+              Mobile Chrome HTTP Restriction
             </div>
             <p className="leading-relaxed">
-              Mobile Chrome blocks live video streams on local HTTP (<code className="bg-black/50 px-1 py-0.5 rounded text-amber-100">192.168.x.x</code>). To allow it on this phone in 30 seconds:
+              Mobile Chrome blocks camera access on local HTTP IP addresses. To unlock your camera in 20 seconds:
             </p>
             <ol className="list-decimal pl-4 space-y-1 text-[11px] font-mono text-amber-100">
               <li>In phone Chrome address bar, open: <strong className="text-white">chrome://flags</strong></li>
               <li>Search: <strong className="text-white">unsafely-treat-insecure-origin-as-secure</strong></li>
-              <li>Add: <strong className="text-white">http://192.168.0.102:3000</strong></li>
-              <li>Set to <strong>Enabled</strong> & tap <strong>Relaunch</strong>.</li>
+              <li>Add: <strong className="text-white">{typeof window !== 'undefined' ? window.location.origin : 'http://192.168.0.102:3000'}</strong></li>
+              <li>Set to <strong>Enabled</strong> &amp; tap <strong>Relaunch</strong>.</li>
             </ol>
+            <p className="text-[10px] text-amber-300/80 pt-1 border-t border-amber-800">
+              Tip: You can also open this link in <strong>Firefox for Android</strong> or connect via <strong>Iriun Webcam USB cable</strong> for zero configuration.
+            </p>
           </div>
         )}
 

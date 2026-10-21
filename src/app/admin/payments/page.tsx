@@ -481,6 +481,90 @@ export default function PaymentsPage() {
     return true;
   });
 
+  // Generate and Download PDF Payslip Voucher
+  const handleDownloadPayslip = (voucher: Payment) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Payslip - ${voucher.worker.name} (${voucher.id.slice(0, 8)})</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 40px; color: #1e293b; background: #fff; }
+          .header { border-bottom: 2px solid #0284c7; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
+          .logo { font-size: 24px; font-weight: 900; color: #0f172a; }
+          .logo span { color: #0284c7; }
+          .badge { background: #e0f2fe; color: #0369a1; padding: 5px 12px; border-radius: 9999px; font-size: 11px; font-weight: bold; letter-spacing: 0.05em; }
+          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+          .box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
+          .box-title { font-size: 10px; text-transform: uppercase; font-weight: bold; color: #64748b; margin-bottom: 6px; letter-spacing: 0.05em; }
+          .box-value { font-size: 16px; font-weight: 800; color: #0f172a; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th { text-align: left; padding: 12px 14px; background: #f1f5f9; font-size: 11px; font-weight: bold; color: #475569; border-bottom: 1px solid #cbd5e1; text-transform: uppercase; }
+          td { padding: 12px 14px; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
+          .amount-row { font-size: 18px; font-weight: 900; color: #059669; }
+          .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <div class="logo">Site<span>Track</span></div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 2px;">Autonomous Construction Edge ERP &amp; Payroll</div>
+          </div>
+          <div class="badge">OFFICIAL PAYMENT VOUCHER</div>
+        </div>
+
+        <div class="grid">
+          <div class="box">
+            <div class="box-title">Worker / Beneficiary</div>
+            <div class="box-value">${voucher.worker.name}</div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Destination: ${voucher.worker.upiId ? 'UPI: ' + voucher.worker.upiId : voucher.worker.bankAccountNumber ? 'A/C: ••••' + voucher.worker.bankAccountNumber.slice(-4) : 'Bank IMPS'}</div>
+          </div>
+          <div class="box">
+            <div class="box-title">Disbursement Details</div>
+            <div class="box-value" style="color: #059669;">₹${voucher.amount.toLocaleString('en-IN')}</div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Ref ID: ${voucher.razorpayPayoutId || 'sim_' + voucher.id.slice(0, 8)}</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th style="text-align: right;">Disbursed Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Wage Settlement &amp; Verified Edge Biometric Attendance</td>
+              <td>${voucher.type}</td>
+              <td style="color: #059669; font-weight: bold;">${voucher.status}</td>
+              <td style="text-align: right;" class="amount-row">₹${voucher.amount.toLocaleString('en-IN')}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="footer">
+          Digitally generated on ${new Date(voucher.paymentDate).toLocaleString('en-IN')} via Razorpay Payouts Gateway.<br/>
+          SiteTrack Construction ERP • Zero-Touch Biometric Verification
+        </div>
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+      </html>
+    `;
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   return (
     <div className="space-y-6">
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
@@ -765,13 +849,22 @@ export default function PaymentsPage() {
                     )}
 
                     {pay.status === 'SUCCESS' && (
-                      <button
-                        onClick={() => setSelectedVoucher(pay)}
-                        title="View Razorpay Voucher"
-                        className="p-1.5 text-primary hover:bg-slate-100 rounded-lg transition"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">receipt_long</span>
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleDownloadPayslip(pay)}
+                          title="Download Official PDF Payslip"
+                          className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">download</span>
+                        </button>
+                        <button
+                          onClick={() => setSelectedVoucher(pay)}
+                          title="View Razorpay Voucher"
+                          className="p-1.5 text-primary hover:bg-slate-100 rounded-lg transition"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">receipt_long</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1402,6 +1495,13 @@ export default function PaymentsPage() {
                 className="px-4 py-2 rounded-xl text-xs font-bold border border-outline-variant bg-white text-on-surface hover:bg-slate-100"
               >
                 Close
+              </button>
+              <button
+                onClick={() => handleDownloadPayslip(selectedVoucher)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1 shadow-sm transition"
+              >
+                <span className="material-symbols-outlined text-[16px]">download</span>
+                Download PDF Payslip
               </button>
               <button
                 onClick={() => window.print()}

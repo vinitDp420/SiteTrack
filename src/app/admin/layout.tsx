@@ -102,7 +102,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
   const filteredNavItems = navItems.filter((item) => {
     if (role === 'SUPERVISOR') {
-      const restricted = ['/admin/boq', '/admin/payroll', '/admin/payments', '/admin/fraud-alerts'];
+      const restricted = ['/admin/boq', '/admin/payroll', '/admin/payments'];
       return !restricted.includes(item.href);
     }
     return true;

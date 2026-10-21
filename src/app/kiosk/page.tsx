@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { CheckCircle2, XCircle, UserCheck, HardHat, FlaskConical, ScanFace, Calculator } from "lucide-react";
+import { CheckCircle2, XCircle, UserCheck, HardHat, FlaskConical, ScanFace, Calculator, Wifi, WifiOff, RefreshCw, Database } from "lucide-react";
+import { enqueueAttendance, getQueueCount, syncOfflineQueue } from "@/lib/offline-queue";
 
 let faceapi: any;
 if (typeof window !== 'undefined') {
@@ -35,6 +36,11 @@ export default function KioskPage() {
   const [allWorkers, setAllWorkers] = useState<any[]>([]);
   const [testWorkerId, setTestWorkerId] = useState<string>("");
   const [detectedWorker, setDetectedWorker] = useState<{ id: string; name: string; score: number; action: "in" | "out" } | null>(null);
+
+  // Offline Queue State
+  const [isOnline, setIsOnline] = useState(true);
+  const [queueCount, setQueueCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   // Face Recognition State
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -89,7 +95,52 @@ export default function KioskPage() {
 
       // Load face models
       loadFaceModels();
+
+      // Setup offline queue listeners
+      const updateOnlineStatus = () => {
+        const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        setIsOnline(online);
+        if (online) {
+          handleTriggerSync();
+        }
+      };
+
+      if (typeof window !== 'undefined') {
+        setIsOnline(navigator.onLine);
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        getQueueCount().then(setQueueCount);
+      }
+
+      return () => {
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('online', updateOnlineStatus);
+          window.removeEventListener('offline', updateOnlineStatus);
+        }
+      };
   }, []);
+
+  const handleTriggerSync = async () => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const res = await syncOfflineQueue();
+      const cnt = await getQueueCount();
+      setQueueCount(cnt);
+      if (res.synced > 0) {
+        setMessage({
+          text: `Synced ${res.synced} offline attendance record(s) to server!`,
+          type: "success",
+        });
+        setTimeout(() => setMessage(null), 3500);
+      }
+    } catch (e) {
+      console.error("Failed to sync offline queue:", e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
   
   const loadFaceModels = async () => {
     try {
@@ -161,6 +212,31 @@ export default function KioskPage() {
       return;
     }
 
+    const workerName = allWorkers.find(w => w.id === workerId)?.name || "Worker";
+
+    // Direct offline mode handling
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      try {
+        await enqueueAttendance({
+          workerId,
+          workerName,
+          projectId: selectedProject,
+          action,
+          timestamp: Date.now(),
+        });
+        const cnt = await getQueueCount();
+        setQueueCount(cnt);
+        setMessage({
+          text: `[OFFLINE] Logged ${workerName} (${action === 'in' ? 'Clock In' : 'Clock Out'}). Stored in local queue (auto-syncs on reconnect).`,
+          type: "info",
+        });
+      } catch {
+        setMessage({ text: "Failed to store offline record", type: "error" });
+      }
+      setTimeout(() => { setInput(""); setMessage(null); setDetectedWorker(null); }, 4000);
+      return;
+    }
+
     try {
       if (action === "in") {
         const res = await fetch("/api/attendance", {
@@ -170,7 +246,7 @@ export default function KioskPage() {
         });
         const data = await res.json();
         if (res.ok) {
-          const wName = data.session?.worker?.name || allWorkers.find(w => w.id === workerId)?.name || "Worker";
+          const wName = data.session?.worker?.name || workerName;
           setMessage({ text: `Welcome ${wName}! ✅ Clocked In Successfully.`, type: "success" });
         } else {
           setMessage({ text: data.error || "Failed to check in", type: "error" });
@@ -183,14 +259,31 @@ export default function KioskPage() {
         });
         const data = await res.json();
         if (res.ok) {
-          const wName = data.session?.worker?.name || allWorkers.find(w => w.id === workerId)?.name || "Worker";
+          const wName = data.session?.worker?.name || workerName;
           setMessage({ text: `Goodbye ${wName}! 👋 Clocked Out Successfully. Daily Wage Disbursed.`, type: "success" });
         } else {
           setMessage({ text: data.error || "Failed to check out", type: "error" });
         }
       }
     } catch (err) {
-      setMessage({ text: "Network error", type: "error" });
+      // If network fails during request, fall back to offline queue
+      try {
+        await enqueueAttendance({
+          workerId,
+          workerName,
+          projectId: selectedProject,
+          action,
+          timestamp: Date.now(),
+        });
+        const cnt = await getQueueCount();
+        setQueueCount(cnt);
+        setMessage({
+          text: `[OFFLINE QUEUE] Connection dropped. Stored ${workerName} locally to sync on reconnect!`,
+          type: "info",
+        });
+      } catch {
+        setMessage({ text: "Network error", type: "error" });
+      }
     }
     setTimeout(() => { setInput(""); setMessage(null); setDetectedWorker(null); }, 4000);
   };
@@ -375,7 +468,29 @@ export default function KioskPage() {
         </button>
       </div>
       
-      <div className="absolute top-4 right-4 text-xs text-gray-500 flex items-center gap-2">
+      <div className="absolute top-4 right-4 text-xs text-gray-400 flex items-center gap-2">
+        {/* Network Status Badge */}
+        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold ${
+          isOnline ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800' : 'bg-red-950/60 text-red-400 border-red-800 animate-pulse'
+        }`}>
+          {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+          <span>{isOnline ? 'Online' : 'Offline'}</span>
+        </div>
+
+        {/* Offline Queue Badge & Sync Button */}
+        {queueCount > 0 && (
+          <button
+            onClick={handleTriggerSync}
+            disabled={!isOnline || isSyncing}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border bg-amber-950/80 text-amber-300 border-amber-700 text-xs font-bold hover:bg-amber-900 transition disabled:opacity-50"
+            title="Click to synchronize offline attendance records with database"
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span>Queue ({queueCount})</span>
+            <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+          </button>
+        )}
+
         <select
           className="bg-gray-800 text-white border border-gray-700 p-2 rounded outline-none"
           value={selectedProject}

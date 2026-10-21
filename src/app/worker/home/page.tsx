@@ -8,55 +8,95 @@ if (typeof window !== 'undefined') {
   faceapi = require('face-api.js');
 }
 
-interface WorkerProfile {
+interface EnrolledWorker {
   id: string;
   name: string;
+  phone: string;
   projectId: string;
-  paymentType: string;
   wageRate: number;
-  upiId?: string | null;
-  bankAccountNumber?: string | null;
+  paymentType: string;
   facePhotoUrl?: string | null;
-  faceEmbeddings?: Array<{ embedding: string }>;
-  project: {
-    name: string;
-  };
+  descriptor?: Float32Array | null;
+  isCheckedIn?: boolean;
+  activeAttendanceId?: string | null;
+  checkInTime?: string | null;
 }
 
 export default function WorkerHome() {
-  const [worker, setWorker] = useState<WorkerProfile | null>(null);
-  const [isCheckedIn, setIsCheckedIn] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successToast, setSuccessToast] = useState<{ name: string; title: string; subtitle: string; type: 'in' | 'out' } | null>(null);
-  const [todayHours, setTodayHours] = useState('0.0');
-  const [checkInTimeStr, setCheckInTimeStr] = useState('--:-- AM');
-
-  // Biometric Face Scanner State
+  const [currentWorker, setCurrentWorker] = useState<EnrolledWorker | null>(null);
+  const [allWorkers, setAllWorkers] = useState<EnrolledWorker[]>([]);
+  const [enrolledWorkers, setEnrolledWorkers] = useState<EnrolledWorker[]>([]);
+  const [matcherLoading, setMatcherLoading] = useState(true);
   const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanAction, setScanAction] = useState<'in' | 'out'>('in');
-  const [scanStatus, setScanStatus] = useState<string>('Initializing Camera...');
-  const [matchScore, setMatchScore] = useState<number | null>(null);
-  const [hasEnrolledFace, setHasEnrolledFace] = useState(false);
 
+  // Active Session & Shift status of currently logged-in worker
+  const [isCheckedIn, setIsCheckedIn] = useState(false);
+  const [activeSession, setActiveSession] = useState<any>(null);
+  const [checkInTimeStr, setCheckInTimeStr] = useState('--:-- AM');
+  const [todayHours, setTodayHours] = useState('0.0');
+
+  // Scanner UI States
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState<string>('Initializing AI Face Matcher...');
+  const [matchScore, setMatchScore] = useState<number | null>(null);
+  const [detectedWorker, setDetectedWorker] = useState<EnrolledWorker | null>(null);
+  const [detectedFaceInFrame, setDetectedFaceInFrame] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+  const [selectedWorkerToLink, setSelectedWorkerToLink] = useState<string>('');
+
+  // Toast / Messages
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successToast, setSuccessToast] = useState<{
+    name: string;
+    title: string;
+    subtitle: string;
+    type: 'in' | 'out';
+  } | null>(null);
+
+  // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const enrolledDescriptorRef = useRef<Float32Array | null>(null);
+  const enrolledWorkersRef = useRef<EnrolledWorker[]>([]);
+  const latestDescriptorRef = useRef<Float32Array | null>(null);
   const verificationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isExecutingRef = useRef<boolean>(false);
+
+  // Play pleasant audio chime
+  const playSuccessChime = () => {
+    try {
+      if (typeof window === 'undefined') return;
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {
+      // Audio autoplay policy fallback
+    }
+  };
 
   useEffect(() => {
-    fetchWorkerStatus();
     loadFaceModels();
+    loadAllWorkersAndBuildMatcher();
 
     return () => {
       stopCamera();
     };
   }, []);
 
+  // 1. Load AI Face Recognition Models
   const loadFaceModels = async () => {
     try {
       await Promise.all([
@@ -71,33 +111,32 @@ export default function WorkerHome() {
     }
   };
 
-  const fetchWorkerStatus = async () => {
-    setLoading(true);
-    setErrorMsg(null);
+  // 2. Fetch all workers and check attendance status (Check In vs Check Out)
+  const loadAllWorkersAndBuildMatcher = async () => {
+    setMatcherLoading(true);
     try {
-      const res = await fetch('/api/workers/me');
-      const data = await res.json();
-      if (res.ok && data.worker) {
-        setWorker(data.worker);
-        setIsCheckedIn(data.isCheckedIn);
-
-        // Check enrolled face embedding or photo
-        if (data.worker.faceEmbeddings && data.worker.faceEmbeddings.length > 0) {
-          try {
-            const rawVector = JSON.parse(data.worker.faceEmbeddings[0].embedding);
-            enrolledDescriptorRef.current = new Float32Array(rawVector);
-            setHasEnrolledFace(true);
-          } catch {
-            setHasEnrolledFace(false);
+      // Fetch active attendance logs to identify who is checked in right now
+      const attRes = await fetch(`/api/attendance?_t=${Date.now()}`, { cache: 'no-store' });
+      const attendanceLogs = await attRes.json();
+      const activeMap = new Map<string, any>();
+      if (Array.isArray(attendanceLogs)) {
+        for (const log of attendanceLogs) {
+          if (log.checkOutTime === null && !activeMap.has(log.workerId)) {
+            activeMap.set(log.workerId, log);
           }
-        } else if (data.worker.facePhotoUrl) {
-          setHasEnrolledFace(true);
-        } else {
-          setHasEnrolledFace(false);
         }
+      }
 
-        if (data.activeSession) {
-          const checkIn = new Date(data.activeSession.checkInTime);
+      // Fetch logged-in worker status
+      const meRes = await fetch(`/api/workers/me?_t=${Date.now()}`, { cache: 'no-store' });
+      const meData = await meRes.json();
+      if (meRes.ok && meData.worker) {
+        setCurrentWorker(meData.worker);
+        setIsCheckedIn(meData.isCheckedIn);
+        setActiveSession(meData.activeSession);
+
+        if (meData.activeSession) {
+          const checkIn = new Date(meData.activeSession.checkInTime);
           setCheckInTimeStr(checkIn.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
           const diffMs = new Date().getTime() - checkIn.getTime();
           setTodayHours((diffMs / (1000 * 60 * 60)).toFixed(1));
@@ -105,22 +144,86 @@ export default function WorkerHome() {
           setCheckInTimeStr('--:-- AM');
           setTodayHours('0.0');
         }
-      } else {
-        setErrorMsg(data.error || 'Failed to load worker profile.');
       }
-    } catch {
-      setErrorMsg('Failed to communicate with server.');
+
+      // Fetch all workers from DB
+      const res = await fetch(`/api/workers?_t=${Date.now()}`, { cache: 'no-store' });
+      const workers = await res.json();
+      if (Array.isArray(workers)) {
+        setAllWorkers(workers);
+        if (workers.length > 0) {
+          setSelectedWorkerToLink(workers[0].id);
+        }
+
+        // Process descriptors and active status for each worker
+        const preparedList: EnrolledWorker[] = [];
+
+        for (const w of workers) {
+          let descriptor: Float32Array | null = null;
+          const activeEntry = activeMap.get(w.id);
+
+          // Priority 1: Stored FaceEmbedding vector in database
+          if (w.faceEmbeddings && w.faceEmbeddings.length > 0) {
+            try {
+              const vector = JSON.parse(w.faceEmbeddings[0].embedding);
+              descriptor = new Float32Array(vector);
+            } catch (err) {
+              console.error('Vector parse error for:', w.name);
+            }
+          }
+
+          // Priority 2: Extract descriptor from facePhotoUrl if model is loaded and no vector exists
+          if (!descriptor && w.facePhotoUrl && typeof window !== 'undefined') {
+            try {
+              const img = await faceapi.fetchImage(w.facePhotoUrl);
+              const detection = await faceapi
+                .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+
+              if (detection) {
+                descriptor = detection.descriptor;
+                fetch(`/api/workers/${w.id}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ faceDescriptor: Array.from(detection.descriptor) }),
+                }).catch(() => {});
+              }
+            } catch (imgErr) {
+              console.warn(`Could not compute face descriptor from photo for ${w.name}`);
+            }
+          }
+
+          if (descriptor) {
+            preparedList.push({
+              ...w,
+              descriptor,
+              isCheckedIn: !!activeEntry,
+              activeAttendanceId: activeEntry?.id || null,
+              checkInTime: activeEntry?.checkInTime || null,
+            });
+          }
+        }
+
+        setEnrolledWorkers(preparedList);
+        enrolledWorkersRef.current = preparedList;
+      }
+    } catch (err) {
+      console.error('Failed to load workers database for face matching:', err);
+    } finally {
+      setMatcherLoading(false);
     }
-    setLoading(false);
   };
 
-  // Start Camera Stream for either Clock-In or Clock-Out
-  const startCamera = async (action: 'in' | 'out') => {
+  // Start Camera Stream
+  const startCamera = async () => {
     setErrorMsg(null);
-    setScanAction(action);
     setIsScanning(true);
-    setScanStatus(`Scanning face for ${action === 'in' ? 'Clock In' : 'Clock Out'}...`);
+    setDetectedFaceInFrame(false);
+    setDetectedWorker(null);
     setMatchScore(null);
+    isExecutingRef.current = false;
+    setScanStatus('Position your face in camera frame...');
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -131,12 +234,12 @@ export default function WorkerHome() {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play();
-          startFaceTrackingLoop(action);
+          startFaceTrackingLoop();
         };
       }
     } catch (err: any) {
       console.error('Camera error:', err);
-      setErrorMsg('Camera access unavailable. You can use Quick Verification below.');
+      setErrorMsg('Camera access unavailable. Please check camera permissions.');
       setIsScanning(false);
     }
   };
@@ -158,12 +261,13 @@ export default function WorkerHome() {
       videoRef.current.srcObject = null;
     }
     setIsScanning(false);
+    setDetectedFaceInFrame(false);
+    setDetectedWorker(null);
+    isExecutingRef.current = false;
   };
 
-  // Real-time Facial Landmark Tracking & Matching Loop
-  const startFaceTrackingLoop = (action: 'in' | 'out') => {
-    const workerName = worker?.name || 'Worker';
-
+  // Real-time Facial Landmark Tracking & Check-In / Check-Out Matching Loop
+  const startFaceTrackingLoop = () => {
     const track = async () => {
       if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) {
         return;
@@ -186,61 +290,72 @@ export default function WorkerHome() {
           ctx?.clearRect(0, 0, canvas.width, canvas.height);
 
           if (detection) {
+            setDetectedFaceInFrame(true);
+            latestDescriptorRef.current = detection.descriptor;
             const resizedDetection = faceapi.resizeResults(detection, displaySize);
             const box = resizedDetection.detection.box;
 
-            let isMatched = false;
-            let currentScore = 95;
+            // 1:N Matching against all enrolled workers
+            let bestWorker: EnrolledWorker | null = null;
+            let minDistance = 1.0;
+            const currentEnrolled = enrolledWorkersRef.current;
 
-            // Compute match against enrolled descriptor if available
-            if (enrolledDescriptorRef.current) {
-              const distance = faceapi.euclideanDistance(
-                detection.descriptor,
-                enrolledDescriptorRef.current
-              );
-              currentScore = Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
-              setMatchScore(currentScore);
-              isMatched = distance < 0.60;
-            } else {
-              // Live presence detected
-              isMatched = true;
-              setMatchScore(98);
+            for (const candidate of currentEnrolled) {
+              if (!candidate.descriptor) continue;
+              const distance = faceapi.euclideanDistance(detection.descriptor, candidate.descriptor);
+              if (distance < minDistance) {
+                minDistance = distance;
+                bestWorker = candidate;
+              }
             }
 
-            // Draw Real-time Canvas Label with Worker Name
+            const confidenceScore = Math.max(0, Math.min(100, Math.round((1 - minDistance) * 100)));
+            const isMatchConfirmed = bestWorker !== null && minDistance < 0.55;
+            const isClockingOut = isMatchConfirmed && bestWorker?.isCheckedIn;
+
+            setMatchScore(confidenceScore);
+            setDetectedWorker(isMatchConfirmed ? bestWorker : null);
+
+            // Draw Real-time Canvas Label & Landmarks
             if (ctx) {
-              const boxColor = isMatched ? '#10b981' : '#f59e0b';
+              const boxColor = isMatchConfirmed ? (isClockingOut ? '#ef4444' : '#10b981') : '#f59e0b';
               ctx.lineWidth = 3;
               ctx.strokeStyle = boxColor;
               ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-              // Draw Facial Landmark Dots (Eyes, Nose, Mouth)
+              // Draw Facial Landmark Dots
               const landmarks = resizedDetection.landmarks.positions;
-              ctx.fillStyle = isMatched ? '#34d399' : '#fbbf24';
+              ctx.fillStyle = isMatchConfirmed ? (isClockingOut ? '#f87171' : '#34d399') : '#fbbf24';
               for (let i = 0; i < landmarks.length; i += 2) {
                 ctx.beginPath();
-                ctx.arc(landmarks[i].x, landmarks[i].y, 1.8, 0, 2 * Math.PI);
+                ctx.arc(landmarks[i].x, landmarks[i].y, 2, 0, 2 * Math.PI);
                 ctx.fill();
               }
 
               // Draw Worker Name Badge directly over the face box
-              // Because canvas has CSS scale-x-[-1], unflip context so text is not reversed
               ctx.save();
               ctx.translate(canvas.width, 0);
               ctx.scale(-1, 1);
 
-              const actionLabel = action === 'in' ? 'CLOCK IN' : 'CLOCK OUT';
-              const nameTag = `${workerName} • ${currentScore}% • ${actionLabel}`;
+              const actionTag = isClockingOut ? '2ND SCAN • CLOCK OUT' : '1ST SCAN • CLOCK IN';
+              const nameTag = isMatchConfirmed
+                ? `✔ ${bestWorker?.name?.toUpperCase()} • ${actionTag}`
+                : `⚠ UNKNOWN WORKER (${confidenceScore}%)`;
+
               ctx.font = 'bold 12px system-ui, sans-serif';
               const textWidth = ctx.measureText(nameTag).width;
               const unmirroredBoxX = canvas.width - (box.x + box.width);
               const badgeY = Math.max(26, box.y - 8);
 
-              // Background pill for label
-              ctx.fillStyle = isMatched ? 'rgba(6, 78, 59, 0.95)' : 'rgba(120, 53, 15, 0.95)';
+              // Background pill
+              ctx.fillStyle = isMatchConfirmed
+                ? isClockingOut
+                  ? 'rgba(127, 29, 29, 0.95)'
+                  : 'rgba(6, 78, 59, 0.95)'
+                : 'rgba(120, 53, 15, 0.95)';
               ctx.fillRect(unmirroredBoxX, badgeY - 20, textWidth + 16, 22);
 
-              // Border for label
+              // Border
               ctx.strokeStyle = boxColor;
               ctx.lineWidth = 1;
               ctx.strokeRect(unmirroredBoxX, badgeY - 20, textWidth + 16, 22);
@@ -252,29 +367,42 @@ export default function WorkerHome() {
               ctx.restore();
             }
 
-            if (isMatched) {
-              setScanStatus(`✅ Verified: ${workerName} (${currentScore}% Match) • Processing ${action === 'in' ? 'Clock In' : 'Clock Out'}...`);
+            // Auto-trigger Check In (1st Scan) or Check Out (2nd Scan)
+            if (isMatchConfirmed && bestWorker) {
+              const matchedWorkerName = bestWorker.name;
 
-              // Auto-confirm after stable detection
-              if (!verificationTimerRef.current) {
+              if (isClockingOut) {
+                setScanStatus(`🔴 2nd Scan Detected: ${matchedWorkerName} is currently Checked In. Clocking Out & ending shift in 1s...`);
+              } else {
+                setScanStatus(`🟢 1st Scan Detected: ${matchedWorkerName} is currently Checked Out. Clocking In & starting shift in 1s...`);
+              }
+
+              if (!verificationTimerRef.current && !isExecutingRef.current) {
+                playSuccessChime();
+                const targetWorkerId = bestWorker.id;
+                const targetWorkerName = bestWorker.name;
+                const targetProjectId = bestWorker.projectId;
+
                 verificationTimerRef.current = setTimeout(() => {
-                  if (action === 'in') {
-                    executeClockIn(false);
-                  } else {
-                    executeClockOut(false);
-                  }
-                }, 1300);
+                  handleExecuteAttendanceForWorker(targetWorkerId, targetWorkerName, targetProjectId);
+                }, 900);
               }
             } else {
-              setScanStatus(`⚠️ Face Not Recognized for ${workerName}. Look directly into the camera.`);
+              setScanStatus(
+                bestWorker
+                  ? `⚠️ Face looks like ${bestWorker.name} (${confidenceScore}%), but confidence is low. Please look straight at camera.`
+                  : `⚠️ Face not recognized in worker database. Please register your face below.`
+              );
               if (verificationTimerRef.current) {
                 clearTimeout(verificationTimerRef.current);
                 verificationTimerRef.current = null;
               }
             }
           } else {
-            setScanStatus(`Align face in frame to verify ${workerName}...`);
+            setDetectedFaceInFrame(false);
+            setDetectedWorker(null);
             setMatchScore(null);
+            setScanStatus('Position face inside the frame...');
             if (verificationTimerRef.current) {
               clearTimeout(verificationTimerRef.current);
               verificationTimerRef.current = null;
@@ -291,139 +419,210 @@ export default function WorkerHome() {
     animationFrameRef.current = requestAnimationFrame(track);
   };
 
-  // Execute Clock-In API call
-  const executeClockIn = async (manualBackup = false) => {
-    if (!worker) return;
+  // Smart Check-In (1st Scan) or Check-Out (2nd Scan) Execution
+  const handleExecuteAttendanceForWorker = async (workerId: string, workerName: string, projectId: string) => {
+    if (isExecutingRef.current) return;
+    isExecutingRef.current = true;
     setProcessing(true);
     setErrorMsg(null);
     stopCamera();
 
     try {
-      const res = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workerId: worker.id,
-          projectId: worker.projectId,
-          manualBackup,
-          latitude: 18.5204,
-          longitude: 73.8567,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setIsCheckedIn(true);
-        const checkIn = new Date(data.session.checkInTime);
-        setCheckInTimeStr(checkIn.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
+      // 1. Check if this worker currently has an active check-in (checkOutTime === null)
+      const checkRes = await fetch(`/api/attendance?workerId=${workerId}&_t=${Date.now()}`, { cache: 'no-store' });
+      const logs = await checkRes.json();
+      const activeEntry = Array.isArray(logs) ? logs.find((l: any) => l.checkOutTime === null) : null;
 
-        setSuccessToast({
-          name: worker.name,
-          title: `Welcome, ${worker.name}!`,
-          subtitle: `Biometric Face Scan verified. Shift started at ${checkIn.toLocaleTimeString('en-IN')}.`,
-          type: 'in',
+      if (activeEntry) {
+        // === 2ND SCAN: CLOCK OUT ===
+        const outRes = await fetch('/api/attendance', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workerId, attendanceId: activeEntry.id }),
         });
-        setTimeout(() => setSuccessToast(null), 5000);
+        const outData = await outRes.json();
+
+        if (outRes.ok) {
+          if (!currentWorker || workerId === currentWorker.id) {
+            setIsCheckedIn(false);
+            setTodayHours('0.0');
+            setCheckInTimeStr('--:-- AM');
+          }
+
+          // Instant in-memory update for all worker lists
+          setEnrolledWorkers((prev) =>
+            prev.map((w) => (w.id === workerId ? { ...w, isCheckedIn: false, activeAttendanceId: null } : w))
+          );
+          enrolledWorkersRef.current = enrolledWorkersRef.current.map((w) =>
+            w.id === workerId ? { ...w, isCheckedIn: false, activeAttendanceId: null } : w
+          );
+
+          const pay = outData.payment?.payment;
+          const wageMsg = pay?.amount ? `₹${pay.amount} wage payout initiated.` : 'Shift completed.';
+
+          setSuccessToast({
+            name: workerName,
+            title: `👋 2nd Scan: Checked Out!`,
+            subtitle: `Goodbye, ${workerName}! Shift clocked out successfully. ${wageMsg}`,
+            type: 'out',
+          });
+          setTimeout(() => setSuccessToast(null), 6000);
+        } else {
+          setErrorMsg(outData.error || `Failed to clock out ${workerName}.`);
+        }
       } else {
-        setErrorMsg(data.error || 'Check-in failed.');
+        // === 1ST SCAN: CLOCK IN ===
+        const inRes = await fetch('/api/attendance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workerId,
+            projectId,
+            manualBackup: false,
+            latitude: 18.5204,
+            longitude: 73.8567,
+          }),
+        });
+        const inData = await inRes.json();
+
+        if (inRes.ok) {
+          const checkIn = new Date(inData.session.checkInTime);
+          if (!currentWorker || workerId === currentWorker.id) {
+            setIsCheckedIn(true);
+            setCheckInTimeStr(checkIn.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
+          }
+
+          // Instant in-memory update for all worker lists
+          setEnrolledWorkers((prev) =>
+            prev.map((w) =>
+              w.id === workerId
+                ? { ...w, isCheckedIn: true, activeAttendanceId: inData.session?.id, checkInTime: inData.session?.checkInTime }
+                : w
+            )
+          );
+          enrolledWorkersRef.current = enrolledWorkersRef.current.map((w) =>
+            w.id === workerId
+              ? { ...w, isCheckedIn: true, activeAttendanceId: inData.session?.id, checkInTime: inData.session?.checkInTime }
+              : w
+          );
+
+          setSuccessToast({
+            name: workerName,
+            title: `🎉 1st Scan: Checked In!`,
+            subtitle: `Welcome, ${workerName}! Shift started at ${checkIn.toLocaleTimeString('en-IN')}. Scan again when shift ends to Clock Out.`,
+            type: 'in',
+          });
+          setTimeout(() => setSuccessToast(null), 6000);
+        } else {
+          setErrorMsg(inData.error || `Attendance recording failed for ${workerName}.`);
+        }
       }
+
+      // Refresh all statuses from database
+      await loadAllWorkersAndBuildMatcher();
     } catch {
-      setErrorMsg('Failed to process check-in.');
+      setErrorMsg(`Failed to record attendance for ${workerName}.`);
+    } finally {
+      setProcessing(false);
+      isExecutingRef.current = false;
     }
-    setProcessing(false);
   };
 
-  // Execute Clock-Out & Automated Payout API call
-  const executeClockOut = async (manualBackup = false) => {
-    if (!worker) return;
-    setProcessing(true);
-    setErrorMsg(null);
-    stopCamera();
+  // Register live webcam face to any selected worker
+  const handleRegisterLiveFace = async () => {
+    if (!latestDescriptorRef.current) {
+      setErrorMsg('No face currently detected in camera frame to register.');
+      return;
+    }
+    if (!selectedWorkerToLink) {
+      setErrorMsg('Please select a worker name from the list.');
+      return;
+    }
 
+    const targetWorker = allWorkers.find((w) => w.id === selectedWorkerToLink);
+    if (!targetWorker) return;
+
+    setEnrolling(true);
     try {
-      const res = await fetch('/api/attendance', {
+      const descriptorArray = Array.from(latestDescriptorRef.current);
+      const res = await fetch(`/api/workers/${targetWorker.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workerId: worker.id }),
+        body: JSON.stringify({
+          faceDescriptor: descriptorArray,
+        }),
       });
-      const data = await res.json();
+
       if (res.ok) {
-        setIsCheckedIn(false);
-        setCheckInTimeStr('--:-- AM');
-        setTodayHours('0.0');
+        // Update local reference immediately
+        const updatedList = enrolledWorkers.filter((w) => w.id !== targetWorker.id);
+        const newEnrolled: EnrolledWorker = {
+          ...targetWorker,
+          descriptor: new Float32Array(descriptorArray),
+          isCheckedIn: targetWorker.isCheckedIn || false,
+        };
+        updatedList.push(newEnrolled);
+        setEnrolledWorkers(updatedList);
+        enrolledWorkersRef.current = updatedList;
 
-        const pay = data.payment?.payment;
-        const amountMsg = pay?.amount ? `₹${pay.amount} disbursed to ${worker.upiId || 'your account'} via Razorpay Instant.` : 'Daily wage payout initiated.';
+        setScanStatus(`✅ Face successfully registered for ${targetWorker.name}! Marking attendance...`);
+        playSuccessChime();
 
-        setSuccessToast({
-          name: worker.name,
-          title: `Goodbye, ${worker.name}!`,
-          subtitle: `Face Scan Clock-Out Verified. ${amountMsg}`,
-          type: 'out',
-        });
-        setTimeout(() => setSuccessToast(null), 6000);
-        await fetchWorkerStatus();
+        // Trigger attendance for this newly linked worker
+        setTimeout(() => {
+          handleExecuteAttendanceForWorker(targetWorker.id, targetWorker.name, targetWorker.projectId);
+        }, 700);
       } else {
-        setErrorMsg(data.error || 'Check-out failed.');
+        const err = await res.json();
+        setErrorMsg(err.error || 'Failed to enroll face.');
       }
     } catch {
-      setErrorMsg('Failed to process check-out.');
+      setErrorMsg('Server connection error while enrolling face.');
+    } finally {
+      setEnrolling(false);
     }
-    setProcessing(false);
   };
 
-  if (loading) {
-    return (
-      <div className="flex-grow flex items-center justify-center">
-        <p className="text-sm font-bold text-on-surface-variant">Loading worker shift info...</p>
-      </div>
-    );
-  }
-
-  if (errorMsg && !worker) {
-    return (
-      <div className="flex-grow flex flex-col items-center justify-center p-6 gap-4">
-        <span className="material-symbols-outlined text-[48px] text-[#ba1a1a]">warning</span>
-        <p className="text-sm font-bold text-[#ba1a1a] text-center">{errorMsg}</p>
-        <p className="text-xs text-on-surface-variant text-center">
-          Please make sure you are logged in with your worker credentials.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex-grow flex flex-col items-center justify-center py-4 gap-6">
-      {/* Status Header */}
-      <div className="text-center w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-on-background mb-1">Today's Shift</h1>
-        <p className="text-xs text-on-surface-variant font-bold uppercase tracking-wider">{worker?.name}</p>
+    <div className="flex-grow flex flex-col items-center justify-start py-2 pb-16 gap-5">
+      
+      {/* Smart Biometric Scanner Header */}
+      <div className="w-full max-w-sm bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm text-center">
+        <div className="flex items-center justify-center gap-1.5 mb-1.5">
+          <span className={`w-2 h-2 rounded-full ${isCheckedIn ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            {isCheckedIn ? 'Active Shift • Ready for Check-Out' : 'Ready for Shift Check-In'}
+          </span>
+        </div>
+        <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
+          Site Face Scanner
+        </h1>
+        <p className="text-xs text-slate-500 mt-0.5">
+          1st Scan = <strong>Check In</strong> • 2nd Scan = <strong>Check Out</strong>
+        </p>
 
-        {/* Biometric Status Tag */}
-        <div className="flex items-center justify-center gap-2 mt-2">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 bg-white rounded-full border border-outline-variant shadow-sm text-xs font-bold text-on-surface-variant">
-            <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${isCheckedIn ? 'bg-emerald-600' : 'bg-red-600'}`}></span>
-            <span>{isCheckedIn ? 'Checked In & Active' : 'Checked Out'}</span>
-          </div>
-          <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-cyan-50 border border-cyan-200 text-cyan-800 rounded-full text-[11px] font-bold">
-            <span className="material-symbols-outlined text-[14px]">face</span>
-            <span>Biometrics Enrolled</span>
-          </div>
+        {/* Database Enrolled Workers Counter */}
+        <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+          <span className="font-semibold">Registered Workers:</span>
+          <span className="font-bold px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full border border-blue-200 text-[11px]">
+            {enrolledWorkers.length} Face Profiles Ready
+          </span>
         </div>
       </div>
 
       {/* Prominent Real-Time Name Confirmation Alert */}
       {successToast && (
-        <div className={`w-full max-w-sm px-4 py-3.5 rounded-2xl border flex gap-3 items-center shadow-lg animate-in fade-in zoom-in-95 duration-300 ${successToast.type === 'in' ? 'bg-emerald-950 border-emerald-500 text-emerald-100' : 'bg-blue-950 border-blue-500 text-blue-100'}`}>
-          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${successToast.type === 'in' ? 'bg-emerald-800 text-emerald-200' : 'bg-blue-800 text-blue-200'}`}>
+        <div className={`w-full max-w-sm px-4 py-3.5 rounded-2xl border flex gap-3 items-center shadow-lg animate-in fade-in zoom-in-95 duration-300 ${successToast.type === 'in' ? 'bg-emerald-950 border-emerald-500 text-emerald-100' : 'bg-rose-950 border-rose-500 text-rose-100'}`}>
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${successToast.type === 'in' ? 'bg-emerald-800 text-emerald-200' : 'bg-rose-800 text-rose-200'}`}>
             <span className="material-symbols-outlined text-[24px]">
-              {successToast.type === 'in' ? 'login' : 'payments'}
+              {successToast.type === 'in' ? 'login' : 'logout'}
             </span>
           </div>
           <div>
             <h4 className="text-sm font-extrabold text-white flex items-center gap-1.5">
               <span>{successToast.title}</span>
               <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/20">
-                {successToast.type === 'in' ? 'Check In' : 'Clock Out'}
+                {successToast.type === 'in' ? 'Shift Check-In' : 'Shift Check-Out'}
               </span>
             </h4>
             <p className="text-xs text-white/80 mt-0.5 leading-snug">{successToast.subtitle}</p>
@@ -432,35 +631,51 @@ export default function WorkerHome() {
       )}
 
       {errorMsg && (
-        <div className="w-full max-w-sm px-4 py-2.5 bg-[#ffdad6] text-[#93000a] text-xs rounded-xl border border-[#ba1a1a]/20 flex gap-2 items-center">
-          <span className="material-symbols-outlined text-[16px]">error</span>
+        <div className="w-full max-w-sm px-4 py-2.5 bg-red-50 text-red-700 text-xs rounded-xl border border-red-200 flex gap-2 items-center">
+          <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">error</span>
           <span>{errorMsg}</span>
         </div>
       )}
 
-      {/* Biometric Face Recognition Camera Scanner */}
+      {/* Live Biometric Camera Scanner */}
       {isScanning ? (
         <div className="flex flex-col items-center gap-3 w-full max-w-sm">
-          {/* Active Scanner Header with Worker Name */}
-          <div className="w-full bg-slate-900 border border-slate-700/80 rounded-2xl p-3 flex items-center justify-between text-white shadow-md">
+          {/* Active Status Badge */}
+          <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-3 flex items-center justify-between text-white shadow-md">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white font-extrabold text-sm shadow-md">
-                {worker?.name?.charAt(0) || 'W'}
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-sm ${
+                detectedWorker?.isCheckedIn ? 'bg-rose-600' : 'bg-emerald-600'
+              }`}>
+                <span className="material-symbols-outlined text-[20px]">
+                  {detectedWorker?.isCheckedIn ? 'logout' : 'login'}
+                </span>
               </div>
               <div>
-                <p className="text-xs font-black text-white">{worker?.name}</p>
+                <p className="text-xs font-bold text-white">
+                  {detectedWorker ? detectedWorker.name : 'Scanning Face...'}
+                </p>
                 <p className="text-[10px] text-slate-400 font-mono">
-                  {scanAction === 'in' ? 'Face Scan: Shift Check-In' : 'Face Scan: Shift Clock-Out & Payout'}
+                  {detectedWorker
+                    ? detectedWorker.isCheckedIn
+                      ? `2ND SCAN: Clock Out (${matchScore}%)`
+                      : `1ST SCAN: Clock In (${matchScore}%)`
+                    : 'Comparing with Database Photos...'}
                 </p>
               </div>
             </div>
-            <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-1 rounded-full border ${scanAction === 'in' ? 'bg-emerald-950 border-emerald-600 text-emerald-300' : 'bg-red-950 border-red-600 text-red-300'}`}>
-              {scanAction === 'in' ? 'CLOCK IN' : 'CLOCK OUT'}
-            </span>
+            {detectedWorker && (
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                detectedWorker.isCheckedIn
+                  ? 'bg-rose-950 border-rose-600 text-rose-300'
+                  : 'bg-emerald-950 border-emerald-600 text-emerald-300'
+              }`}>
+                {detectedWorker.isCheckedIn ? 'CLOCK OUT' : 'CLOCK IN'}
+              </span>
+            )}
           </div>
 
-          <div className="relative w-72 h-72 rounded-2xl overflow-hidden border-4 border-cyan-500 shadow-[0_0_25px_rgba(6,182,212,0.45)] bg-black flex items-center justify-center">
-            {/* Live Video Feed */}
+          {/* Video Preview with AI Landmark Canvas */}
+          <div className="relative w-72 h-72 rounded-2xl overflow-hidden border-4 border-blue-500 shadow-[0_0_25px_rgba(59,130,246,0.35)] bg-black flex items-center justify-center">
             <video
               ref={videoRef}
               autoPlay
@@ -468,64 +683,117 @@ export default function WorkerHome() {
               playsInline
               className="w-full h-full object-cover scale-x-[-1]"
             />
-            {/* Real-time Facial Landmark Overlay Canvas */}
             <canvas
               ref={canvasRef}
               className="absolute inset-0 w-full h-full pointer-events-none scale-x-[-1]"
             />
-            {/* Laser Scanning Animation */}
-            <div className="absolute top-0 left-0 w-full h-1 bg-cyan-400 shadow-[0_0_12px_#22d3ee] animate-[scan_2s_ease-in-out_infinite] pointer-events-none"></div>
+            <div className="absolute top-0 left-0 w-full h-1 bg-blue-400 shadow-[0_0_12px_#60a5fa] animate-[scan_2s_ease-in-out_infinite] pointer-events-none" />
 
-            {/* Real-time Top Floating Name Badge Overlay */}
+            {/* Top Floating Match Alert */}
             <div className="absolute top-2 left-2 right-2 z-20 flex justify-center pointer-events-none">
               <div className={`px-3 py-1.5 rounded-xl border backdrop-blur-md shadow-md flex items-center gap-2 ${
-                scanAction === 'in' ? 'bg-emerald-950/90 border-emerald-500/80 text-emerald-200' : 'bg-red-950/90 border-red-500/80 text-red-200'
+                detectedWorker
+                  ? detectedWorker.isCheckedIn
+                    ? 'bg-rose-950/90 border-rose-500/80 text-rose-200'
+                    : 'bg-emerald-950/90 border-emerald-500/80 text-emerald-200'
+                  : 'bg-slate-900/90 border-slate-700/80 text-slate-300'
               }`}>
-                <span className={`w-2 h-2 rounded-full animate-ping ${scanAction === 'in' ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                <span className="text-[11px] font-black font-mono tracking-wide uppercase">
-                  {scanAction === 'in' ? '🟢 Clocking In:' : '🔴 Clocking Out:'} {worker?.name}
+                <span className={`w-2 h-2 rounded-full ${detectedWorker ? (detectedWorker.isCheckedIn ? 'bg-rose-400 animate-ping' : 'bg-emerald-400 animate-ping') : 'bg-amber-400'}`} />
+                <span className="text-[11px] font-bold font-mono tracking-wide uppercase truncate max-w-[220px]">
+                  {detectedWorker
+                    ? detectedWorker.isCheckedIn
+                      ? `2nd Scan: Clock Out ${detectedWorker.name}`
+                      : `1st Scan: Clock In ${detectedWorker.name}`
+                    : 'Searching Database...'}
                 </span>
               </div>
             </div>
 
-            {/* Live Match Badge Overlay with Worker Name */}
+            {/* Bottom Match Percentage */}
             <div className="absolute bottom-2 left-2 right-2 bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20 text-center pointer-events-none z-20">
-              <span className={`text-xs font-mono font-bold ${matchScore && matchScore >= 60 ? 'text-emerald-400' : 'text-cyan-300'}`}>
-                {worker?.name} &bull; {matchScore !== null ? `Match: ${matchScore}%` : 'Scanning Face...'}
+              <span className={`text-xs font-mono font-bold ${
+                detectedWorker ? (detectedWorker.isCheckedIn ? 'text-rose-400' : 'text-emerald-400') : 'text-blue-300'
+              }`}>
+                {detectedWorker
+                  ? `✔ ${detectedWorker.name} • ${matchScore}% • ${detectedWorker.isCheckedIn ? '2nd Scan' : '1st Scan'}`
+                  : matchScore !== null
+                  ? `Scanning Face (${matchScore}%)`
+                  : 'Align face in camera'}
               </span>
             </div>
           </div>
 
-          {/* Scanner Feedback Message */}
-          <p className="text-xs font-bold text-center text-slate-700 bg-slate-100 px-4 py-1.5 rounded-full border border-slate-200">
+          {/* Feedback Status */}
+          <p className="text-xs font-semibold text-center text-slate-700 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm w-full leading-tight">
             {scanStatus}
           </p>
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap gap-2 justify-center">
+          {/* Quick Action when Face is Recognized */}
+          {detectedWorker && (
             <button
-              onClick={() => (scanAction === 'in' ? executeClockIn(false) : executeClockOut(false))}
+              type="button"
+              onClick={() => {
+                if (verificationTimerRef.current) {
+                  clearTimeout(verificationTimerRef.current);
+                  verificationTimerRef.current = null;
+                }
+                handleExecuteAttendanceForWorker(detectedWorker.id, detectedWorker.name, detectedWorker.projectId);
+              }}
               disabled={processing}
-              className={`px-4 py-2 font-bold text-xs uppercase rounded-full shadow-md active:scale-95 transition-all flex items-center gap-1.5 text-white ${scanAction === 'in' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'}`}
+              className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer ${
+                detectedWorker.isCheckedIn
+                  ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              }`}
             >
-              <span className="material-symbols-outlined text-[16px]">verified</span>
-              Confirm {worker?.name}
+              <span className="material-symbols-outlined text-[18px]">
+                {detectedWorker.isCheckedIn ? 'logout' : 'login'}
+              </span>
+              <span>
+                {detectedWorker.isCheckedIn
+                  ? `Confirm 2nd Scan: Clock Out ${detectedWorker.name}`
+                  : `Confirm 1st Scan: Clock In ${detectedWorker.name}`}
+              </span>
             </button>
+          )}
 
-            <button
-              onClick={() => (scanAction === 'in' ? executeClockIn(true) : executeClockOut(true))}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase rounded-full shadow-md active:scale-95 transition-all"
-            >
-              Quick Override
-            </button>
+          {/* Fallback / Face Registration Linker */}
+          {detectedFaceInFrame && (
+            <div className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl flex flex-col gap-2">
+              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                Face Registration / Re-assign:
+              </span>
+              <div className="flex gap-2">
+                <select
+                  value={selectedWorkerToLink}
+                  onChange={(e) => setSelectedWorkerToLink(e.target.value)}
+                  className="flex-1 text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-semibold text-slate-800"
+                >
+                  {allWorkers.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name} {w.facePhotoUrl ? '📷' : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleRegisterLiveFace}
+                  disabled={enrolling}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm whitespace-nowrap cursor-pointer transition-all"
+                >
+                  {enrolling ? 'Saving...' : '📸 Link & Process'}
+                </button>
+              </div>
+            </div>
+          )}
 
-            <button
-              onClick={stopCamera}
-              className="px-3 py-2 bg-transparent text-red-600 font-bold text-xs uppercase active:scale-95"
-            >
-              Cancel
-            </button>
-          </div>
+          {/* Cancel Button */}
+          <button
+            onClick={stopCamera}
+            className="w-full py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs uppercase rounded-xl transition-all cursor-pointer"
+          >
+            Close Camera
+          </button>
 
           <style
             dangerouslySetInnerHTML={{
@@ -541,60 +809,103 @@ export default function WorkerHome() {
           />
         </div>
       ) : (
-        <button
-          onClick={() => startCamera(isCheckedIn ? 'out' : 'in')}
-          disabled={processing}
-          className={`relative w-64 h-64 rounded-full flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-xl border-4 ${
-            isCheckedIn
-              ? 'bg-[#ba1a1a] border-[#e05a5a] text-white hover:bg-[#a01515]'
-              : 'bg-slate-900 border-slate-700 text-white hover:bg-slate-800'
-          }`}
-        >
-          <div className="absolute inset-0 rounded-full border-4 border-white opacity-10"></div>
-          <span className="material-symbols-outlined text-[64px] animate-bounce">
-            {isCheckedIn ? 'logout' : 'face'}
-          </span>
-          <span className="text-lg font-black tracking-wider uppercase text-center px-4 leading-tight">
-            {processing
-              ? 'Processing...'
-              : isCheckedIn
-              ? `FACE SCAN TO\nCLOCK OUT (${worker?.name?.split(' ')[0] || 'WORKER'})`
-              : `FACE SCAN TO\nCLOCK IN (${worker?.name?.split(' ')[0] || 'WORKER'})`}
-          </span>
-        </button>
+        <div className="flex flex-col items-center gap-4">
+          <button
+            onClick={startCamera}
+            disabled={processing || matcherLoading}
+            className={`relative w-64 h-64 rounded-full flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-xl border-4 cursor-pointer text-white ${
+              isCheckedIn
+                ? 'bg-rose-700 border-rose-500 hover:bg-rose-800'
+                : 'bg-slate-900 border-slate-700 hover:bg-slate-800'
+            }`}
+          >
+            <div className="absolute inset-0 rounded-full border-4 border-white opacity-10"></div>
+            <span className={`material-symbols-outlined text-[64px] animate-bounce ${
+              isCheckedIn ? 'text-rose-200' : 'text-blue-400'
+            }`}>
+              {isCheckedIn ? 'logout' : 'face'}
+            </span>
+            <div className="flex flex-col items-center px-4">
+              <span className="text-[11px] font-bold tracking-widest uppercase opacity-80">
+                {isCheckedIn ? '2nd Scan' : '1st Scan'}
+              </span>
+              <span className="text-base font-extrabold tracking-wider uppercase text-center leading-tight mt-0.5">
+                {processing
+                  ? 'Processing...'
+                  : matcherLoading
+                  ? 'Loading Face DB...'
+                  : isCheckedIn
+                  ? 'FACE SCAN TO\nCLOCK OUT'
+                  : 'FACE SCAN TO\nCLOCK IN'}
+              </span>
+              <span className="text-[10px] font-mono mt-1 opacity-70">
+                {currentWorker?.name || 'Worker'}
+              </span>
+            </div>
+          </button>
+
+          <div className="px-4 py-2 bg-slate-100 rounded-xl border border-slate-200/80 text-center max-w-xs">
+            <p className="text-xs text-slate-700 font-semibold">
+              {isCheckedIn
+                ? '🟢 Currently on shift. Scan face a 2nd time to Clock Out.'
+                : '⚪ Currently off duty. Scan face for the 1st time to Clock In.'}
+            </p>
+          </div>
+        </div>
       )}
 
-      {/* Hours Worked & Wage Summary Card */}
-      <div className="w-full max-w-sm bg-white rounded-xl border border-outline-variant p-5 shadow-[0_2px_8px_rgba(13,28,50,0.05)]">
-        <h2 className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-2">Hours Worked Today</h2>
-        <div className="flex items-end gap-1">
-          <span className="text-4xl font-black text-on-background">{todayHours}</span>
-          <span className="text-sm text-on-surface-variant mb-1 font-bold">hrs</span>
+      {/* Enrolled Workers Photo Roster with Live Status */}
+      <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm">
+        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center justify-between">
+          <span>Worker Face Database ({enrolledWorkers.length})</span>
+          <span className="text-[10px] text-blue-600 font-semibold">Live Shift Status</span>
+        </h3>
+        <div className="space-y-2">
+          {enrolledWorkers.map((w) => (
+            <div
+              key={w.id}
+              className="flex items-center justify-between p-2 rounded-xl border border-slate-100 hover:border-slate-200 bg-slate-50/60 text-xs"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-200 border border-slate-300 shrink-0 flex items-center justify-center font-bold text-slate-600">
+                  {w.facePhotoUrl ? (
+                    <img src={w.facePhotoUrl} alt={w.name} className="w-full h-full object-cover" />
+                  ) : (
+                    w.name.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div>
+                  <p className="font-bold text-slate-800">{w.name}</p>
+                  <p className="text-[10px] text-slate-500 font-mono">{w.phone}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  w.isCheckedIn
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>
+                  {w.isCheckedIn ? '🟢 Shift Active' : '⚪ Off Duty'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleExecuteAttendanceForWorker(w.id, w.name, w.projectId)}
+                  disabled={processing}
+                  className={`px-2 py-0.5 text-[10px] font-bold rounded-lg cursor-pointer transition-all border ${
+                    w.isCheckedIn
+                      ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                  title={w.isCheckedIn ? '2nd Scan: Clock Out' : '1st Scan: Clock In'}
+                >
+                  {w.isCheckedIn ? 'Clock Out' : 'Clock In'}
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
-        <div className="mt-4 flex justify-between items-center border-t border-outline-variant/30 pt-4">
-          <div className="flex flex-col">
-            <span className="text-[10px] font-bold text-on-surface-variant uppercase">Start Time</span>
-            <span className="text-sm text-on-background font-bold">{checkInTimeStr}</span>
-          </div>
-          <div className="w-px h-8 bg-outline-variant/30"></div>
-          <div className="flex flex-col text-right">
-            <span className="text-[10px] font-bold text-on-surface-variant uppercase">Daily Wage</span>
-            <span className="text-sm text-emerald-700 font-black">₹{worker?.wageRate || 850}/day</span>
-          </div>
-        </div>
-
-        {/* Quick Link to Payslips */}
-        <Link
-          href="/worker/payslip"
-          className="mt-4 pt-3 border-t border-outline-variant/30 flex items-center justify-between text-xs font-bold text-primary hover:underline"
-        >
-          <span className="flex items-center gap-1">
-            <span className="material-symbols-outlined text-[16px]">receipt_long</span>
-            View Payslips & Payment History
-          </span>
-          <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-        </Link>
       </div>
+
     </div>
   );
 }

@@ -137,11 +137,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
+    if (body.faceDescriptor && Array.isArray(body.faceDescriptor)) {
+      try {
+        await prisma.faceEmbedding.deleteMany({ where: { workerId: id } });
+        await prisma.faceEmbedding.create({
+          data: {
+            workerId: id,
+            embedding: JSON.stringify(body.faceDescriptor),
+          },
+        });
+      } catch (embErr: any) {
+        console.error('Failed to save face descriptor for worker:', embErr.message);
+      }
+    }
+
     const updatedWorker = await prisma.worker.update({
       where: { id },
       data: updateData,
       include: {
         project: true,
+        faceEmbeddings: true,
         user: {
           select: {
             id: true,
@@ -169,9 +184,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const userId = worker.userId;
 
-    await prisma.worker.delete({
-      where: { id },
-    });
+    // Delete related child records first to satisfy foreign key constraints
+    await prisma.$transaction([
+      prisma.attendance.deleteMany({ where: { workerId: id } }),
+      prisma.payroll.deleteMany({ where: { workerId: id } }),
+      prisma.fraudAlert.deleteMany({ where: { workerId: id } }),
+      prisma.payment.deleteMany({ where: { workerId: id } }),
+      prisma.faceEmbedding.deleteMany({ where: { workerId: id } }),
+      prisma.dailyTask.updateMany({ where: { assignedWorkerId: id }, data: { assignedWorkerId: null } }),
+      prisma.tool.updateMany({ where: { assignedWorkerId: id }, data: { assignedWorkerId: null } }),
+      prisma.worker.delete({ where: { id } }),
+    ]);
 
     if (userId) {
       await prisma.user.delete({ where: { id: userId } }).catch(() => {});
@@ -179,6 +202,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     return NextResponse.json({ message: 'Worker deleted successfully.' });
   } catch (error: any) {
+    console.error('Delete worker error:', error);
     return NextResponse.json({ error: error.message || 'Failed to delete worker.' }, { status: 500 });
   }
 }

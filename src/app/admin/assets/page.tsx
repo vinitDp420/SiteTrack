@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useProject } from '@/lib/project-context';
 
 interface VehicleLog {
   id: string;
@@ -34,11 +35,12 @@ interface Worker {
 }
 
 export default function AssetsPage() {
+  const { selectedProject } = useProject();
   const [activeTab, setActiveTab] = useState<'vehicles' | 'tools'>('vehicles');
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [tools, setTools] = useState<Tool[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
-  const [projectId, setProjectId] = useState('');
+  const projectId = selectedProject?.id || '';
 
   // Modals
   const [showLogModal, setShowLogModal] = useState(false);
@@ -62,13 +64,6 @@ export default function AssetsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/projects')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.length > 0) setProjectId(data[0].id);
-      })
-      .catch((e) => console.error(e));
-
     fetch('/api/workers')
       .then((res) => res.json())
       .then((data) => {
@@ -200,6 +195,48 @@ export default function AssetsPage() {
     }
   };
 
+  const handleExportCSV = () => {
+    let headers: string[] = [];
+    let rows: (string | number)[][] = [];
+    let filename = '';
+
+    if (activeTab === 'vehicles') {
+      headers = ['Equipment / Vehicle', 'Plate / Reg No', 'Status', 'Maintenance Due Date', 'Total Hours Logged', 'Fuel Filled (Liters)'];
+      rows = vehicles.map((v) => {
+        const totalHours = v.logs?.reduce((sum, l) => sum + (l.hoursUsed || 0), 0) || 0;
+        const totalFuel = v.logs?.reduce((sum, l) => sum + (l.fuelFilled || 0), 0) || 0;
+        return [
+          `"${v.name}"`,
+          `"${v.plateNumber || ''}"`,
+          `"${v.status}"`,
+          `"${v.maintenanceDueDate ? new Date(v.maintenanceDueDate).toLocaleDateString() : 'N/A'}"`,
+          totalHours,
+          totalFuel,
+        ];
+      });
+      filename = `Equipment_Vehicles_${new Date().toISOString().slice(0, 10)}.csv`;
+    } else {
+      headers = ['Tool Name', 'Quantity', 'Status', 'Assigned Worker', 'Project'];
+      rows = tools.map((t) => [
+        `"${t.name}"`,
+        t.quantity,
+        `"${t.status}"`,
+        `"${t.assignedWorker?.name || 'Unassigned'}"`,
+        `"${selectedProject?.name || ''}"`,
+      ]);
+      filename = `Hand_Tools_${new Date().toISOString().slice(0, 10)}.csv`;
+    }
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -208,7 +245,15 @@ export default function AssetsPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-primary tracking-tight">Vehicles & Tools</h1>
           <p className="text-sm text-on-surface-variant mt-1">Track heavy equipment logs and hand tool inventory.</p>
         </div>
-        <div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            className="bg-white border border-outline-variant hover:bg-slate-50 text-on-surface font-bold text-xs uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-sm active:scale-[0.98] transition"
+            title="Export asset ledger to CSV / Excel spreadsheet"
+          >
+            <span className="material-symbols-outlined text-[18px] text-emerald-600">download</span>
+            Export CSV
+          </button>
           {activeTab === 'tools' && (
             <button
               onClick={() => setShowToolModal(true)}

@@ -3,66 +3,73 @@
 import React, { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import {
+  Building2,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  AlertCircle,
+  HardHat,
+  Users,
+  Shield,
+  Check,
+} from 'lucide-react';
+
+type RoleKey = 'Supervisor' | 'Worker' | 'Administrator';
 
 interface DemoAccount {
-  role: string;
+  role: RoleKey;
   label: string;
   email: string;
   password: string;
-  icon: string;
-  description: string;
+  badge: string;
+  icon: React.ComponentType<{ className?: string }>;
 }
 
 const DEMO_ACCOUNTS: DemoAccount[] = [
   {
     role: 'Supervisor',
     label: 'Supervisor',
+    badge: 'Site Operations',
     email: 'supervisor@sitetrack.com',
     password: 'Supervisor@123',
-    icon: 'engineering',
-    description: 'On-site supervisory & daily shift control',
+    icon: HardHat,
   },
   {
     role: 'Worker',
     label: 'Worker',
+    badge: 'Mobile Field',
     email: 'worker@sitetrack.com',
     password: 'Worker@123',
-    icon: 'construction',
-    description: 'Mobile attendance, shifts & instant payouts',
+    icon: Users,
   },
   {
     role: 'Administrator',
-    label: 'Administrator',
+    label: 'Admin',
+    badge: 'Executive',
     email: 'admin@sitetrack.com',
     password: 'Admin@123',
-    icon: 'shield_person',
-    description: 'Full organization oversight & financial approvals',
+    icon: Shield,
   },
 ];
 
 export default function LoginPage() {
   const router = useRouter();
+  const [selectedRole, setSelectedRole] = useState<RoleKey>('Supervisor');
   const [email, setEmail] = useState('supervisor@sitetrack.com');
   const [password, setPassword] = useState('Supervisor@123');
-  const [role, setRole] = useState('Supervisor');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const applyDemoAccount = (account: DemoAccount) => {
-    setRole(account.role);
+  const handleRoleSelect = (account: DemoAccount) => {
+    setSelectedRole(account.role);
     setEmail(account.email);
     setPassword(account.password);
     setError(null);
-  };
-
-  const handleRoleDropdown = (selectedRole: string) => {
-    setRole(selectedRole);
-    const found = DEMO_ACCOUNTS.find((a) => a.role === selectedRole);
-    if (found) {
-      setEmail(found.email);
-      setPassword(found.password);
-      setError(null);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -70,7 +77,7 @@ export default function LoginPage() {
     setError(null);
 
     if (!email || !password) {
-      setError('Please fill in all fields.');
+      setError('Please enter both your email/username and password.');
       return;
     }
 
@@ -78,8 +85,8 @@ export default function LoginPage() {
 
     try {
       const result = await signIn('credentials', {
-        email,
-        password,
+        email: email.trim(),
+        password: password.trim(),
         redirect: false,
       });
 
@@ -99,173 +106,259 @@ export default function LoginPage() {
       } else if (userRole === 'WORKER') {
         router.replace('/worker/home');
       } else {
-        router.replace('/worker/home');
+        router.replace('/admin/dashboard');
       }
     } catch (err: any) {
-      setError('An unexpected error occurred. Please try again.');
+      setError('Unable to connect to the authentication service. Please try again.');
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex items-center justify-center p-4 md:p-8">
-      {/* Login Card */}
-      <main className="w-full max-w-lg bg-slate-950/80 backdrop-blur-xl border border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        {/* Header / Logo Area */}
-        <div className="px-6 pt-8 pb-5 flex flex-col items-center border-b border-slate-800/80 bg-slate-900/60">
-          <div className="w-16 h-16 bg-gradient-to-tr from-cyan-600 to-blue-500 rounded-xl flex items-center justify-center mb-3 text-white shadow-lg shadow-cyan-500/20">
-            <span className="material-symbols-outlined text-[36px]">
-              domain
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-between text-slate-800 antialiased font-sans">
+      
+      {/* Top Simple Brand Bar */}
+      <header className="w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-sm px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-slate-900 flex items-center justify-center text-white shadow-sm">
+              <Building2 className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <span className="text-lg font-bold text-slate-900 tracking-tight">
+                SiteTrack
+              </span>
+              <span className="text-xs text-slate-500 font-medium ml-2 hidden sm:inline">
+                Construction Management
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 text-xs font-medium text-slate-500">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              Operational
             </span>
           </div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight text-center">SiteTrack</h1>
-          <p className="text-xs md:text-sm text-slate-400 mt-1 text-center font-medium">
-            Next-Gen AI Construction & Workforce Portal
-          </p>
         </div>
+      </header>
 
-        {/* Quick Role Fill Badges */}
-        <div className="px-6 pt-5 pb-1">
-          <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-            One-Click Demo Roles
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            {DEMO_ACCOUNTS.map((acc) => {
-              const active = role === acc.role;
-              return (
-                <button
-                  key={acc.role}
-                  type="button"
-                  onClick={() => applyDemoAccount(acc)}
-                  className={`flex flex-col items-center justify-center py-2.5 px-2 rounded-xl border text-center transition-all ${
-                    active
-                      ? 'bg-cyan-500/15 border-cyan-500 text-cyan-300 font-bold shadow-md shadow-cyan-500/10'
-                      : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[22px] mb-1">
-                    {acc.icon}
-                  </span>
-                  <span className="text-xs font-semibold">{acc.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Form Area */}
-        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
-          {error && (
-            <div className="p-3 bg-red-950/60 border border-red-500/50 text-red-200 text-xs rounded-xl flex gap-2 items-center">
-              <span className="material-symbols-outlined text-[18px] text-red-400">error</span>
-              <span>{error}</span>
+      {/* Main Centered Login Section */}
+      <main className="flex-1 flex items-center justify-center px-4 py-12 sm:px-6">
+        <div className="w-full max-w-[440px]">
+          
+          {/* Card Container */}
+          <div className="bg-white border border-slate-200/90 rounded-2xl shadow-[0_4px_24px_-4px_rgba(15,23,42,0.08)] p-6 sm:p-8">
+            
+            {/* Header */}
+            <div className="text-center mb-7">
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+                Sign in to your account
+              </h1>
+              <p className="text-sm text-slate-500 mt-1.5">
+                Select your role or enter your credentials below
+              </p>
             </div>
-          )}
 
-          {/* Role Selector */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider" htmlFor="role">
-              Active Role Profile
-            </label>
-            <div className="relative">
-              <select
-                className="appearance-none w-full bg-slate-900 border border-slate-800 text-slate-200 text-sm rounded-xl h-[44px] px-3 pr-10 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all font-medium"
-                id="role"
-                name="role"
-                value={role}
-                onChange={(e) => handleRoleDropdown(e.target.value)}
-              >
-                <option value="Supervisor">Supervisor (Site Operations)</option>
-                <option value="Worker">Worker (Mobile Shift & Attendance)</option>
-                <option value="Administrator">Administrator (Executive & Financial)</option>
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
-                <span className="material-symbols-outlined">expand_more</span>
+            {/* Clean Segmented Role Switcher */}
+            <div className="mb-6">
+              <label className="block text-xs font-semibold text-slate-600 mb-2">
+                Quick Role Selection
+              </label>
+              <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/60">
+                {DEMO_ACCOUNTS.map((acc) => {
+                  const isActive = selectedRole === acc.role;
+                  const Icon = acc.icon;
+                  return (
+                    <button
+                      key={acc.role}
+                      type="button"
+                      onClick={() => handleRoleSelect(acc)}
+                      className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                      }`}
+                    >
+                      <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-500'}`} />
+                      <span>{acc.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
+
+            {/* Error Message Alert */}
+            {error && (
+              <div className="mb-5 p-3.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold">Sign in error</p>
+                  <p className="text-red-600 mt-0.5">{error}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              
+              {/* Email / Username Field */}
+              <div>
+                <label
+                  htmlFor="email"
+                  className="block text-xs font-semibold text-slate-700 mb-1.5"
+                >
+                  Email or Username
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="email"
+                    name="email"
+                    type="text"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@company.com"
+                    className="w-full h-10 pl-9 pr-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Password Field */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    htmlFor="password"
+                    className="block text-xs font-semibold text-slate-700"
+                  >
+                    Password
+                  </label>
+                  <span className="text-[11px] text-slate-400">
+                    Default: {selectedRole}@123
+                  </span>
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full h-10 pl-9 pr-10 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Remember Me Option */}
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600 select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Keep me signed in</span>
+                </label>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer mt-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Signing in...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Sign In</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Demo Accounts Reference Table */}
+            <div className="mt-8 pt-5 border-t border-slate-100">
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">
+                Demo Accounts
+              </p>
+              <div className="space-y-1.5">
+                {DEMO_ACCOUNTS.map((acc) => {
+                  const isCurrent = selectedRole === acc.role;
+                  return (
+                    <button
+                      key={acc.role}
+                      type="button"
+                      onClick={() => handleRoleSelect(acc)}
+                      className={`w-full text-left p-2.5 rounded-lg border text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                        isCurrent
+                          ? 'bg-blue-50/60 border-blue-200/80 text-blue-900'
+                          : 'bg-slate-50/60 border-slate-200/60 text-slate-600 hover:bg-slate-100/70 hover:text-slate-900'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          isCurrent ? 'bg-blue-600' : 'bg-slate-400'
+                        }`} />
+                        <span className="font-semibold text-slate-800">{acc.label}</span>
+                        <span className="text-slate-500 text-[11px] truncate">({acc.email})</span>
+                      </div>
+                      <div className="flex items-center gap-1 font-mono text-[11px] text-slate-500 shrink-0 ml-2">
+                        <span>{acc.password}</span>
+                        {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 ml-1" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
           </div>
 
-          {/* Email / Username Input */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider" htmlFor="email">
-              Email, Username or Phone
-            </label>
-            <div className="relative flex items-center">
-              <span className="material-symbols-outlined absolute left-3 text-slate-500 text-[20px] pointer-events-none">
-                person
-              </span>
-              <input
-                className="w-full bg-slate-900 border border-slate-800 text-slate-200 text-sm rounded-xl h-[44px] pl-10 pr-3 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 placeholder-slate-600 transition-all font-medium"
-                id="email"
-                name="email"
-                placeholder="e.g. supervisor@sitetrack.com or supervisor"
-                required
-                type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
+          {/* Simple Bottom Info */}
+          <div className="text-center mt-6 text-xs text-slate-400 space-y-1">
+            <p>Protected by SiteTrack Security Protocols</p>
+            <p className="text-slate-400/80">© {new Date().getFullYear()} SiteTrack Construction Systems</p>
           </div>
 
-          {/* Password Input */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex justify-between items-center">
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider" htmlFor="password">
-                Password
-              </label>
-            </div>
-            <div className="relative flex items-center">
-              <span className="material-symbols-outlined absolute left-3 text-slate-500 text-[20px] pointer-events-none">
-                lock
-              </span>
-              <input
-                className="w-full bg-slate-900 border border-slate-800 text-slate-200 text-sm rounded-xl h-[44px] pl-10 pr-3 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 placeholder-slate-600 transition-all font-mono text-sm"
-                id="password"
-                name="password"
-                placeholder="••••••••"
-                required
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* Submit Button */}
-          <button
-            className="mt-2 w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white h-[46px] rounded-xl font-bold uppercase tracking-wider text-xs flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 shadow-lg shadow-cyan-600/20"
-            type="submit"
-            disabled={loading}
-          >
-            <span>{loading ? 'Authenticating...' : `Sign In as ${role}`}</span>
-            <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-          </button>
-        </form>
-
-        {/* Credentials Reference Footnote */}
-        <div className="px-6 py-4 bg-slate-900/90 border-t border-slate-800 text-left">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-            Verified Test Credentials:
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
-            <div className="bg-slate-950 p-2 rounded-lg border border-slate-800/80">
-              <span className="text-cyan-400 font-bold block">Supervisor</span>
-              <span className="text-slate-400 text-[10px] block truncate">supervisor@sitetrack.com</span>
-              <span className="text-slate-300 font-mono text-[10px]">Supervisor@123</span>
-            </div>
-            <div className="bg-slate-950 p-2 rounded-lg border border-slate-800/80">
-              <span className="text-emerald-400 font-bold block">Worker</span>
-              <span className="text-slate-400 text-[10px] block truncate">worker@sitetrack.com</span>
-              <span className="text-slate-300 font-mono text-[10px]">Worker@123</span>
-            </div>
-            <div className="bg-slate-950 p-2 rounded-lg border border-slate-800/80">
-              <span className="text-indigo-400 font-bold block">Admin</span>
-              <span className="text-slate-400 text-[10px] block truncate">admin@sitetrack.com</span>
-              <span className="text-slate-300 font-mono text-[10px]">Admin@123</span>
-            </div>
-          </div>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="w-full border-t border-slate-200/60 py-3.5 px-6 text-center text-xs text-slate-400 bg-white">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>SiteTrack Platform</span>
+          <div className="flex items-center gap-4 text-slate-500">
+            <a href="#" className="hover:text-slate-700 transition-colors">Documentation</a>
+            <span>•</span>
+            <a href="#" className="hover:text-slate-700 transition-colors">Privacy</a>
+            <span>•</span>
+            <a href="#" className="hover:text-slate-700 transition-colors">Support</a>
+          </div>
+        </div>
+      </footer>
+
     </div>
   );
 }

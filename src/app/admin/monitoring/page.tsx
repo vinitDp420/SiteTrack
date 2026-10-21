@@ -2,8 +2,10 @@
 
 import React from 'react';
 import CCTVFeed from '@/components/CCTVFeed';
+import { useProject } from '@/lib/project-context';
 
 export default function MonitoringPage() {
+  const { selectedProject } = useProject();
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -63,8 +65,8 @@ export default function MonitoringPage() {
           </div>
           <CCTVFeed
             cameraName="GATE 1 - MAIN ENTRANCE"
-            hlsUrl="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
             peerId="sitetrack-admin-1"
+            projectId={selectedProject?.id}
           />
         </div>
 
@@ -76,6 +78,7 @@ export default function MonitoringPage() {
           <CCTVFeed
             cameraName="GATE 2 - LOGISTICS"
             peerId="sitetrack-admin-2"
+            projectId={selectedProject?.id}
           />
         </div>
       </div>
