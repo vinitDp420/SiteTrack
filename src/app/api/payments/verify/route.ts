@@ -67,7 +67,7 @@ export async function POST(req: Request) {
             amount: Number(wAmount),
             type,
             status: 'SUCCESS',
-            razorpayPayoutId: `${razorpayPaymentId}_${wId.slice(0, 4)}`,
+            razorpayPayoutId: `${razorpayPaymentId}_BATCH_${wId.slice(0, 4)}`,
             paymentDate: new Date(),
           },
           include: { worker: true },

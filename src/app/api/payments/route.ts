@@ -2,17 +2,37 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getRazorpayClientConfig } from '@/lib/razorpay';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const projectId = url.searchParams.get('projectId');
     const workerId = url.searchParams.get('workerId');
-    const type = url.searchParams.get('type'); // DAILY, MONTHLY, or PAYROLL
+    const type = url.searchParams.get('type'); // ALL, DAILY, MONTHLY, CASH, PAYROLL, FAILED
 
     const where: any = {};
     if (projectId) where.projectId = projectId;
     if (workerId) where.workerId = workerId;
-    if (type) where.type = type;
+
+    if (type && type !== 'ALL') {
+      if (type === 'CASH') {
+        where.razorpayPayoutId = { startsWith: 'CASH' };
+      } else if (type === 'PAYROLL') {
+        // Payroll batches include monthly payouts and batch disbursements
+        where.OR = [
+          { type: 'MONTHLY' },
+          { razorpayPayoutId: { contains: 'BATCH' } },
+          { razorpayPayoutId: { contains: 'bulk' } },
+          { razorpayPayoutId: { contains: 'sim_bulk' } },
+        ];
+      } else if (type === 'FAILED') {
+        where.status = { in: ['FAILED', 'PENDING'] };
+      } else {
+        where.type = type;
+      }
+    }
 
     const payments = await prisma.payment.findMany({
       where,
@@ -32,13 +52,17 @@ export async function GET(req: Request) {
           },
         },
       },
-      take: 150,
+      take: 200,
     });
 
-    // Summary stats
+    // Summary stats (calculated for the whole project to keep overview cards accurate)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const projectBaseWhere: any = {};
+    if (projectId) projectBaseWhere.projectId = projectId;
+    if (workerId) projectBaseWhere.workerId = workerId;
 
     // Active workers for initiating new Razorpay payments
     const rawWorkers = await prisma.worker.findMany({
@@ -86,29 +110,29 @@ export async function GET(req: Request) {
     );
 
     const stats = await prisma.payment.aggregate({
-      where: { ...where, status: 'SUCCESS' },
+      where: { ...projectBaseWhere, status: 'SUCCESS' },
       _sum: { amount: true },
       _count: true,
     });
 
     const todayStats = await prisma.payment.aggregate({
-      where: { ...where, status: 'SUCCESS', paymentDate: { gte: today } },
+      where: { ...projectBaseWhere, status: 'SUCCESS', paymentDate: { gte: today } },
       _sum: { amount: true },
       _count: true,
     });
 
     const monthStats = await prisma.payment.aggregate({
-      where: { ...where, status: 'SUCCESS', paymentDate: { gte: monthStart } },
+      where: { ...projectBaseWhere, status: 'SUCCESS', paymentDate: { gte: monthStart } },
       _sum: { amount: true },
       _count: true,
     });
 
     const pendingCount = await prisma.payment.count({
-      where: { ...where, status: 'PENDING' },
+      where: { ...projectBaseWhere, status: 'PENDING' },
     });
 
     const failedCount = await prisma.payment.count({
-      where: { ...where, status: 'FAILED' },
+      where: { ...projectBaseWhere, status: 'FAILED' },
     });
 
     const razorpayConfig = getRazorpayClientConfig();

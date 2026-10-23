@@ -23,8 +23,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Payment not found.' }, { status: 404 });
     }
 
-    if (payment.status !== 'FAILED') {
-      return NextResponse.json({ error: 'Only failed payments can be retried.' }, { status: 400 });
+    if (payment.status !== 'FAILED' && payment.status !== 'PENDING') {
+      return NextResponse.json({ error: 'Only failed or pending payments can be retried.' }, { status: 400 });
     }
 
     // Check if worker already received another successful payment today

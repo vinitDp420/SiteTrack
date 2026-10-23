@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { processPayout } from '@/lib/razorpay';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -62,7 +65,34 @@ export async function POST(req: Request) {
 
         const payoutAmount = (body.workerAmounts && body.workerAmounts[id]) || (body.amountPerWorker ? Number(body.amountPerWorker) : worker.wageRate);
         const paymentType = body.type || worker.paymentType || 'DAILY';
-        
+        const isCash = body.method === 'CASH';
+        const cashVoucherId = `CASH_BATCH_${Date.now()}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+        if (isCash) {
+          await prisma.payment.create({
+            data: {
+              workerId: worker.id,
+              projectId: worker.projectId,
+              amount: payoutAmount,
+              type: paymentType,
+              status: 'SUCCESS',
+              razorpayPayoutId: cashVoucherId,
+              paymentDate: new Date(),
+            },
+          });
+          totalDisbursed += payoutAmount;
+          results.push({
+            workerId: worker.id,
+            workerName: worker.name,
+            amount: payoutAmount,
+            status: 'SUCCESS',
+            payoutId: cashVoucherId,
+            transferMode: 'CASH',
+            message: `₹${payoutAmount} paid in cash to ${worker.name} (Voucher #${cashVoucherId})`,
+          });
+          continue;
+        }
+
         const payment = await prisma.payment.create({
           data: {
             workerId: worker.id,
@@ -88,7 +118,7 @@ export async function POST(req: Request) {
           where: { id: payment.id },
           data: {
             status: payoutRes.success ? 'SUCCESS' : 'FAILED',
-            razorpayPayoutId: payoutRes.payoutId || null,
+            razorpayPayoutId: payoutRes.payoutId ? `${payoutRes.payoutId}_BATCH` : null,
             failureReason: payoutRes.failureReason || null,
           },
         });
@@ -168,7 +198,42 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Disbursement amount must be greater than 0' }, { status: 400 });
     }
 
-    // Create payment as PROCESSING
+    const isCash = body.method === 'CASH';
+    const cashVoucherId = `CASH_${Date.now()}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+    if (isCash) {
+      const payment = await prisma.payment.create({
+        data: {
+          workerId: worker.id,
+          projectId: worker.projectId,
+          amount: payoutAmount,
+          type,
+          status: 'SUCCESS',
+          razorpayPayoutId: cashVoucherId,
+          paymentDate: new Date(),
+        },
+        include: {
+          worker: {
+            select: {
+              name: true,
+              upiId: true,
+              bankAccountNumber: true,
+              bankAccountName: true,
+            },
+          },
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `₹${payoutAmount} cash in hand disbursed to ${worker.name} (Voucher #${cashVoucherId}).`,
+        payment,
+        payoutId: cashVoucherId,
+        transferMode: 'CASH',
+      });
+    }
+
+    // Create payment as PROCESSING for Razorpay
     const payment = await prisma.payment.create({
       data: {
         workerId: worker.id,

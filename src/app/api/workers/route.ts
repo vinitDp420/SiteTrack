@@ -27,12 +27,15 @@ function saveFacePhoto(base64Data: string, workerName: string): string {
 
 import bcrypt from 'bcryptjs';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const projectId = url.searchParams.get('projectId');
     const workers = await prisma.worker.findMany({
-      where: projectId ? { projectId } : undefined,
+      where: projectId && projectId !== 'ALL' ? { projectId } : undefined,
       include: {
         project: true,
         faceEmbeddings: true,
@@ -48,7 +51,11 @@ export async function GET(req: NextRequest) {
         name: 'asc',
       },
     });
-    return NextResponse.json(workers);
+    return NextResponse.json(workers, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      },
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to fetch workers.' }, { status: 500 });
   }

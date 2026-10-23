@@ -34,11 +34,14 @@ const INR = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
 
 export default function WorkersPage() {
-  const { selectedProject, projects } = useProject();
+  const { selectedProject, projects, loading: projectLoading } = useProject();
+  const [projectFilter, setProjectFilter] = useState<string>('ALL');
+  const [hasInitializedFilter, setHasInitializedFilter] = useState(false);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [newlyAddedId, setNewlyAddedId] = useState<string | null>(null);
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -73,28 +76,55 @@ export default function WorkersPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const fetchWorkers = async () => {
+  // 1. Initial synchronization: once project context loads, initialize filter
+  useEffect(() => {
+    if (!projectLoading && !hasInitializedFilter) {
+      if (selectedProject) {
+        setProjectFilter(selectedProject.id);
+      } else {
+        setProjectFilter('ALL');
+      }
+      setHasInitializedFilter(true);
+    }
+  }, [projectLoading, selectedProject, hasInitializedFilter]);
+
+  // 2. Synchronize when user switches project from top layout selector
+  useEffect(() => {
+    if (hasInitializedFilter && selectedProject) {
+      setProjectFilter(selectedProject.id);
+    }
+  }, [selectedProject]);
+
+  // 3. Fetch workers strictly for the chosen project filter with cache busting
+  const fetchWorkers = async (filterOverride?: string) => {
+    const activeFilter = filterOverride !== undefined ? filterOverride : projectFilter;
     try {
-      const url = selectedProject ? `/api/workers?projectId=${selectedProject.id}` : '/api/workers';
-      const res = await fetch(url);
+      setLoading(true);
+      const url = activeFilter && activeFilter !== 'ALL'
+        ? `/api/workers?projectId=${activeFilter}&_t=${Date.now()}`
+        : `/api/workers?_t=${Date.now()}`;
+      const res = await fetch(url, { cache: 'no-store' });
       const data = await res.json();
       setWorkers(Array.isArray(data) ? data : []);
-      setLoading(false);
     } catch (e) {
       console.error(e);
+    } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchWorkers();
-  }, [selectedProject]);
+    if (hasInitializedFilter) {
+      fetchWorkers();
+    }
+  }, [projectFilter, hasInitializedFilter]);
 
   useEffect(() => {
     if (projects.length > 0 && !projectId) {
-      setProjectId(selectedProject?.id || projects[0].id);
+      const defaultProj = (projectFilter !== 'ALL' && projectFilter) || selectedProject?.id || projects[0].id;
+      setProjectId(defaultProj);
     }
-  }, [projects, selectedProject]);
+  }, [projects, selectedProject, projectFilter]);
 
   const openAddModal = () => {
     setEditMode(false);
@@ -102,7 +132,8 @@ export default function WorkersPage() {
     setName(''); setPhone(''); setWageRate('');
     setLoginEmail(''); setPassword('Worker@123'); setShowPassword(false);
     setFormError(null);
-    setProjectId(selectedProject?.id || (projects.length > 0 ? projects[0].id : ''));
+    const defaultProjId = (projectFilter !== 'ALL' && projectFilter) || selectedProject?.id || (projects.length > 0 ? projects[0].id : '');
+    setProjectId(defaultProjId);
     setStatus('ACTIVE');
     setFacePhoto(null);
     setBankAccountName(''); setBankAccountNumber(''); setIfscCode(''); setUpiId('');
@@ -225,9 +256,30 @@ export default function WorkersPage() {
         setFormError(result.error);
         setFormSaving(false);
       } else {
-        fetchWorkers();
+        // 1. Immediately update local state so newly added/edited worker appears with 0ms latency
+        setWorkers((prev) => {
+          const exists = prev.some((w) => w.id === result.id);
+          if (exists) {
+            return prev.map((w) => (w.id === result.id ? result : w));
+          }
+          return [result, ...prev];
+        });
+
+        // 2. If filtering by a project that differs from the newly created worker, switch filter
+        if (projectFilter !== 'ALL' && projectFilter !== result.projectId) {
+          setProjectFilter(result.projectId);
+        }
+
+        // 3. Highlight newly registered worker with a glowing badge
+        setNewlyAddedId(result.id);
+        setTimeout(() => setNewlyAddedId(null), 8000);
+
         handleCloseModal();
         setFormSaving(false);
+
+        // 4. Background re-fetch to ensure all DB relations and counts are fully refreshed
+        fetchWorkers(result.projectId);
+
         if (!editMode) {
           setCreatedCredentialsAlert({
             name: result.name,
@@ -254,6 +306,8 @@ export default function WorkersPage() {
       if (!res.ok) {
         alert(data.error || 'Failed to delete worker.');
       } else {
+        // Optimistically remove worker from table immediately
+        setWorkers((prev) => prev.filter((w) => w.id !== id));
         await fetchWorkers();
       }
     } catch (err: any) {
@@ -264,7 +318,11 @@ export default function WorkersPage() {
   };
 
   const filtered = workers.filter(
-    (w) => w.name.toLowerCase().includes(search.toLowerCase()) || w.id.toLowerCase().includes(search.toLowerCase())
+    (w) =>
+      w.name.toLowerCase().includes(search.toLowerCase()) ||
+      w.id.toLowerCase().includes(search.toLowerCase()) ||
+      (w.phone && w.phone.includes(search)) ||
+      (w.user?.email && w.user.email.toLowerCase().includes(search.toLowerCase()))
   );
 
   const steps = ['Personal Details', 'Wage & Assignment', 'Bank Details', 'Face Photo (Optional)'];
@@ -276,24 +334,43 @@ export default function WorkersPage() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-primary tracking-tight">Worker Management</h1>
           <p className="text-sm text-on-surface-variant mt-1">
-            {selectedProject
-              ? <>Active roster for <span className="font-bold text-on-surface">{selectedProject.name}</span></>
-              : 'All workers across projects'}
+            {projectFilter === 'ALL'
+              ? 'All workers across all active construction sites'
+              : <>Active roster for <span className="font-bold text-on-surface">{projects.find(p => p.id === projectFilter)?.name || selectedProject?.name || 'Selected Project'}</span></>
+            }
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-          <div className="relative w-full sm:w-60">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+          {/* Project Filter Dropdown */}
+          <div className="relative min-w-[200px]">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">domain</span>
+            <select
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+              className="w-full h-[44px] pl-9 pr-8 bg-white border border-outline-variant focus:border-primary rounded-xl text-sm font-semibold text-on-surface outline-none appearance-none cursor-pointer shadow-sm hover:border-primary/50 transition"
+            >
+              <option value="ALL">All Projects ({workers.length})</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">unfold_more</span>
+          </div>
+
+          <div className="relative w-full sm:w-56">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
             <input
               className="w-full h-[44px] pl-10 pr-3 bg-white border border-outline-variant focus:border-primary rounded-xl text-sm outline-none"
-              placeholder="Search name or ID"
+              placeholder="Search name, phone, ID"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           <button
             onClick={openAddModal}
-            className="h-[44px] bg-primary text-on-primary px-5 rounded-xl font-bold text-sm flex items-center justify-center gap-1.5 hover:opacity-90 transition whitespace-nowrap shadow"
+            className="h-[44px] bg-primary text-on-primary px-5 rounded-xl font-bold text-sm flex items-center justify-center gap-1.5 hover:opacity-90 transition whitespace-nowrap shadow cursor-pointer"
           >
             <span className="material-symbols-outlined text-[20px]">person_add</span>
             Register Worker
@@ -342,41 +419,57 @@ export default function WorkersPage() {
               <p className="text-sm text-on-surface-variant mt-2 font-bold">No workers found.</p>
             </div>
           ) : (
-            filtered.map((worker) => (
-              <div key={worker.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 px-6 py-4 items-center hover:bg-surface-container-low/50 transition-colors">
-                <div className="col-span-1">
-                  {worker.facePhotoUrl ? (
-                    <img className="w-11 h-11 rounded-xl object-cover border border-outline-variant" src={worker.facePhotoUrl} alt={worker.name} />
-                  ) : (
-                    <div className="w-11 h-11 rounded-xl bg-secondary-container flex items-center justify-center text-on-secondary-container font-black text-sm">
-                      {worker.name.charAt(0).toUpperCase()}
+            filtered.map((worker) => {
+              const isNewlyAdded = worker.id === newlyAddedId;
+              return (
+                <div
+                  key={worker.id}
+                  className={`grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 px-6 py-4 items-center transition-all ${
+                    isNewlyAdded
+                      ? 'bg-emerald-50/90 ring-2 ring-emerald-500 shadow-md animate-in fade-in zoom-in-[0.99] duration-300'
+                      : 'hover:bg-surface-container-low/50'
+                  }`}
+                >
+                  <div className="col-span-1">
+                    {worker.facePhotoUrl ? (
+                      <img className="w-11 h-11 rounded-xl object-cover border border-outline-variant" src={worker.facePhotoUrl} alt={worker.name} />
+                    ) : (
+                      <div className="w-11 h-11 rounded-xl bg-secondary-container flex items-center justify-center text-on-secondary-container font-black text-sm">
+                        {worker.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div className="col-span-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-on-surface">{worker.name}</span>
+                      {isNewlyAdded && (
+                        <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-emerald-200 text-emerald-900 rounded-full border border-emerald-400 animate-pulse">
+                          Just Added
+                        </span>
+                      )}
                     </div>
-                  )}
-                </div>
-                <div className="col-span-3">
-                  <div className="font-bold text-on-surface">{worker.name}</div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="material-symbols-outlined text-[13px] text-cyan-700">vpn_key</span>
-                    <span className="text-[11px] text-primary font-mono font-bold truncate max-w-[190px]" title={`Login ID: ${worker.user?.email || 'No account'}`}>
-                      {worker.user?.email || 'No account'}
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="material-symbols-outlined text-[13px] text-cyan-700">vpn_key</span>
+                      <span className="text-[11px] text-primary font-mono font-bold truncate max-w-[190px]" title={`Login ID: ${worker.user?.email || 'No account'}`}>
+                        {worker.user?.email || 'No account'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="col-span-2 text-sm text-on-surface">{worker.phone}</div>
+                  <div className="col-span-2">
+                    <div className="flex items-center gap-1 text-sm">
+                      <span className="material-symbols-outlined text-[14px] text-on-surface-variant">location_on</span>
+                      <span className="text-on-surface truncate">{worker.project?.name || 'Unassigned'}</span>
+                    </div>
+                  </div>
+                  <div className="col-span-2 font-black text-primary text-sm">{INR(worker.wageRate)}<span className="font-normal text-on-surface-variant text-xs">/day</span></div>
+                  <div className="col-span-1">
+                    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-bold rounded-lg ${
+                      worker.status === 'ACTIVE' ? 'bg-[#d5e0f7] text-[#0d1c32]' : 'bg-[#ffdad6] text-[#93000a]'
+                    }`}>
+                      {worker.status}
                     </span>
                   </div>
-                </div>
-                <div className="col-span-2 text-sm text-on-surface">{worker.phone}</div>
-                <div className="col-span-2">
-                  <div className="flex items-center gap-1 text-sm">
-                    <span className="material-symbols-outlined text-[14px] text-on-surface-variant">location_on</span>
-                    <span className="text-on-surface truncate">{worker.project.name}</span>
-                  </div>
-                </div>
-                <div className="col-span-2 font-black text-primary text-sm">{INR(worker.wageRate)}<span className="font-normal text-on-surface-variant text-xs">/day</span></div>
-                <div className="col-span-1">
-                  <span className={`inline-flex items-center px-2 py-0.5 text-xs font-bold rounded-lg ${
-                    worker.status === 'ACTIVE' ? 'bg-[#d5e0f7] text-[#0d1c32]' : 'bg-[#ffdad6] text-[#93000a]'
-                  }`}>
-                    {worker.status}
-                  </span>
-                </div>
                 <div className="col-span-1 flex justify-end gap-1">
                   <button onClick={() => openEditModal(worker)} className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-variant rounded-lg transition-all" title="Edit">
                     <span className="material-symbols-outlined text-[18px]">edit</span>
@@ -395,8 +488,9 @@ export default function WorkersPage() {
                   </button>
                 </div>
               </div>
-            ))
-          )}
+            );
+          })
+        )}
         </div>
       </div>
 
@@ -612,7 +706,10 @@ export default function WorkersPage() {
               {/* STEP 2: Bank Details */}
               {activeStep === 2 && (
                 <div className="space-y-4">
-                  <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">Bank Details for Auto-Payment</div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Bank Details & Wage Mode</div>
+                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">Optional for Cash workers</span>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wide">Account Holder Name</label>
@@ -686,9 +783,11 @@ export default function WorkersPage() {
                       </button>
                     </div>
                   </div>
-                  <div className="bg-[#ffddb8]/30 border border-[#ffddb8] rounded-xl p-3 flex items-start gap-2">
-                    <span className="material-symbols-outlined text-[#b87500] text-[16px] mt-0.5">info</span>
-                    <p className="text-xs text-on-surface-variant">Bank details enable automatic wage transfer via Razorpay. If not provided, payments will be recorded but manual disbursement is needed.</p>
+                  <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-xl p-3.5 flex items-start gap-2.5">
+                    <span className="material-symbols-outlined text-emerald-700 text-[20px] mt-0.5">payments</span>
+                    <div className="text-xs text-emerald-950 leading-relaxed">
+                      <strong className="text-emerald-800">No bank account?</strong> You can leave bank/UPI fields blank. Unbanked workers can be paid on-site via the <strong className="text-emerald-800">Cash in Hand</strong> payment option in the Payments tab, complete with printable signature disbursement vouchers.
+                    </div>
                   </div>
                 </div>
               )}

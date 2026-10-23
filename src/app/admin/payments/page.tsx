@@ -99,7 +99,7 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [processingMonthly, setProcessingMonthly] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
-  const [filterType, setFilterType] = useState<'ALL' | 'DAILY' | 'MONTHLY' | 'PAYROLL' | 'FAILED'>('ALL');
+  const [filterType, setFilterType] = useState<'ALL' | 'DAILY' | 'MONTHLY' | 'CASH' | 'PAYROLL' | 'FAILED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   
   // Modals & Notifications
@@ -129,8 +129,7 @@ export default function PaymentsPage() {
     if (!selectedProject) return;
     setLoading(true);
     try {
-      const typeParam = filterType !== 'ALL' && filterType !== 'FAILED' ? `&type=${filterType}` : '';
-      const res = await fetch(`/api/payments?projectId=${selectedProject.id}${typeParam}`);
+      const res = await fetch(`/api/payments?projectId=${selectedProject.id}`);
       const data = await res.json();
       setPayments(data.payments || []);
       setSummary(data.summary || summary);
@@ -144,7 +143,7 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     if (selectedProject) fetchPayments();
-  }, [selectedProject, filterType]);
+  }, [selectedProject]);
 
   // Partition workers into unpaid today vs already paid today
   const unpaidWorkers = workers.filter((w) => !w.isPaidToday);
@@ -235,6 +234,99 @@ export default function PaymentsPage() {
       }
     } catch {
       showToast('Network error while processing Razorpay payout.', 'error');
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
+
+  // 1b. Cash in Hand Disbursement (Supports Single worker & Batch)
+  const handleCashPayment = async () => {
+    setIsSubmittingPayment(true);
+    try {
+      if (paymentScope === 'ALL') {
+        if (unpaidWorkers.length === 0) {
+          alert('All active workers have already been paid today.');
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        const totalAmount = calculateTotalBatchAmount();
+        const count = unpaidWorkers.length;
+        if (!window.confirm(`Disburse ${INR(totalAmount)} in CASH to ${count} unpaid workers?\n\nThis will record official cash payment vouchers for each worker without requiring bank accounts.`)) {
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        const res = await fetch('/api/payments/disburse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batch: true,
+            method: 'CASH',
+            projectId: selectedProject?.id,
+            workerIds: unpaidWorkers.map((w) => w.id),
+            type: newPaymentType,
+            amountPerWorker: useCustomBatchAmount && customBatchAmount ? Number(customBatchAmount) : undefined,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || `₹${totalAmount} Cash in hand disbursed to ${count} workers!`, 'success');
+          setIsNewPaymentModalOpen(false);
+          fetchPayments();
+        } else {
+          showToast(data.error || 'Batch cash payout failed.', 'error');
+        }
+      } else {
+        if (!newPaymentWorkerId) {
+          alert('Please select a worker.');
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        if (selectedWorker?.isPaidToday) {
+          alert(`${selectedWorker.name} has already received payment today of ₹${selectedWorker.todayPayment?.amount}. Duplicate payments are blocked.`);
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        const amt = Number(newPaymentAmount);
+        if (!amt || amt <= 0) {
+          alert('Please enter a valid payment amount.');
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        const confirmMsg = `Confirm Cash Payment of ${INR(amt)} to ${selectedWorker?.name}?\n\n• Mode: Cash in Hand (Physical Handover)\n• No bank account / UPI required\n• An official verifiable Cash Voucher will be generated.`;
+        if (!window.confirm(confirmMsg)) {
+          setIsSubmittingPayment(false);
+          return;
+        }
+
+        const res = await fetch('/api/payments/disburse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workerId: newPaymentWorkerId,
+            amount: amt,
+            type: newPaymentType,
+            method: 'CASH',
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || `₹${amt} cash payment recorded for ${selectedWorker?.name}!`, 'success');
+          setIsNewPaymentModalOpen(false);
+          await fetchPayments();
+          if (data.payment) {
+            setSelectedVoucher(data.payment);
+          }
+        } else {
+          showToast(data.error || 'Failed to record cash payment.', 'error');
+        }
+      }
+    } catch {
+      showToast('Network error while processing cash payment.', 'error');
     } finally {
       setIsSubmittingPayment(false);
     }
@@ -477,9 +569,22 @@ export default function PaymentsPage() {
 
     if (!matchesSearch) return false;
 
-    if (filterType === 'FAILED') return pay.status === 'FAILED';
+    if (filterType === 'DAILY') return pay.type === 'DAILY' && !pay.razorpayPayoutId?.startsWith('CASH');
+    if (filterType === 'MONTHLY') return pay.type === 'MONTHLY';
+    if (filterType === 'CASH') return pay.razorpayPayoutId?.startsWith('CASH');
+    if (filterType === 'PAYROLL') return pay.type === 'MONTHLY' || (pay.razorpayPayoutId && (pay.razorpayPayoutId.includes('BATCH') || pay.razorpayPayoutId.includes('bulk')));
+    if (filterType === 'FAILED') return pay.status === 'FAILED' || pay.status === 'PENDING';
     return true;
   });
+
+  const tabCounts = {
+    ALL: payments.length,
+    DAILY: payments.filter((p) => p.type === 'DAILY' && !p.razorpayPayoutId?.startsWith('CASH')).length,
+    MONTHLY: payments.filter((p) => p.type === 'MONTHLY').length,
+    CASH: payments.filter((p) => p.razorpayPayoutId?.startsWith('CASH')).length,
+    PAYROLL: payments.filter((p) => p.type === 'MONTHLY' || (p.razorpayPayoutId && (p.razorpayPayoutId.includes('BATCH') || p.razorpayPayoutId.includes('bulk')))).length,
+    FAILED: payments.filter((p) => p.status === 'FAILED' || p.status === 'PENDING').length,
+  };
 
   // Generate and Download PDF Payslip Voucher
   const handleDownloadPayslip = (voucher: Payment) => {
@@ -516,19 +621,25 @@ export default function PaymentsPage() {
             <div class="logo">Site<span>Track</span></div>
             <div style="font-size: 12px; color: #64748b; margin-top: 2px;">Autonomous Construction Edge ERP &amp; Payroll</div>
           </div>
-          <div class="badge">OFFICIAL PAYMENT VOUCHER</div>
+          <div class="badge" style="${voucher.razorpayPayoutId?.startsWith('CASH') ? 'background: #dcfce7; color: #166534;' : ''}">
+            ${voucher.razorpayPayoutId?.startsWith('CASH') ? 'OFFICIAL CASH DISBURSEMENT VOUCHER' : 'OFFICIAL PAYMENT VOUCHER'}
+          </div>
         </div>
 
         <div class="grid">
           <div class="box">
             <div class="box-title">Worker / Beneficiary</div>
             <div class="box-value">${voucher.worker.name}</div>
-            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Destination: ${voucher.worker.upiId ? 'UPI: ' + voucher.worker.upiId : voucher.worker.bankAccountNumber ? 'A/C: ••••' + voucher.worker.bankAccountNumber.slice(-4) : 'Bank IMPS'}</div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">
+              Destination: ${voucher.razorpayPayoutId?.startsWith('CASH') ? '💵 Cash in Hand (Physical Handover)' : voucher.worker.upiId ? 'UPI: ' + voucher.worker.upiId : voucher.worker.bankAccountNumber ? 'A/C: ••••' + voucher.worker.bankAccountNumber.slice(-4) : 'Bank IMPS'}
+            </div>
           </div>
           <div class="box">
             <div class="box-title">Disbursement Details</div>
             <div class="box-value" style="color: #059669;">₹${voucher.amount.toLocaleString('en-IN')}</div>
-            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Ref ID: ${voucher.razorpayPayoutId || 'sim_' + voucher.id.slice(0, 8)}</div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">
+              ${voucher.razorpayPayoutId?.startsWith('CASH') ? 'Cash Voucher Ref: ' + voucher.razorpayPayoutId : 'Ref ID: ' + (voucher.razorpayPayoutId || 'sim_' + voucher.id.slice(0, 8))}
+            </div>
           </div>
         </div>
 
@@ -537,22 +648,41 @@ export default function PaymentsPage() {
             <tr>
               <th>Description</th>
               <th>Type</th>
+              <th>Mode</th>
               <th>Status</th>
               <th style="text-align: right;">Disbursed Amount</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>Wage Settlement &amp; Verified Edge Biometric Attendance</td>
+              <td>${voucher.razorpayPayoutId?.startsWith('CASH') ? 'Physical Cash Wage Handover & Verified Attendance' : 'Wage Settlement & Verified Edge Biometric Attendance'}</td>
               <td>${voucher.type}</td>
+              <td style="font-weight: bold; color: ${voucher.razorpayPayoutId?.startsWith('CASH') ? '#166534' : '#0369a1'};">
+                ${voucher.razorpayPayoutId?.startsWith('CASH') ? 'CASH IN HAND' : 'ONLINE TRANSFER'}
+              </td>
               <td style="color: #059669; font-weight: bold;">${voucher.status}</td>
               <td style="text-align: right;" class="amount-row">₹${voucher.amount.toLocaleString('en-IN')}</td>
             </tr>
           </tbody>
         </table>
 
+        ${voucher.razorpayPayoutId?.startsWith('CASH') ? `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 50px;">
+          <div style="border-top: 1.5px dashed #64748b; padding-top: 8px; text-align: center; font-size: 11px; font-weight: bold; color: #334155;">
+            Worker Signature / Thumb Impression<br/>
+            <span style="font-size: 10px; font-weight: normal; color: #94a3b8;">I hereby acknowledge receipt of cash in full</span>
+          </div>
+          <div style="border-top: 1.5px dashed #64748b; padding-top: 8px; text-align: center; font-size: 11px; font-weight: bold; color: #334155;">
+            Supervisor / Cashier Signature<br/>
+            <span style="font-size: 10px; font-weight: normal; color: #94a3b8;">Authorized Site Disbursing Officer</span>
+          </div>
+        </div>
+        ` : ''}
+
         <div class="footer">
-          Digitally generated on ${new Date(voucher.paymentDate).toLocaleString('en-IN')} via Razorpay Payouts Gateway.<br/>
+          ${voucher.razorpayPayoutId?.startsWith('CASH') 
+            ? `Cash voucher officially recorded on ${new Date(voucher.paymentDate).toLocaleString('en-IN')} on site.<br/>` 
+            : `Digitally generated on ${new Date(voucher.paymentDate).toLocaleString('en-IN')} via Razorpay Payouts Gateway.<br/>`}
           SiteTrack Construction ERP • Zero-Touch Biometric Verification
         </div>
         <script>
@@ -705,25 +835,42 @@ export default function PaymentsPage() {
       {/* Filter Tabs & Search */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
-          {(['ALL', 'DAILY', 'MONTHLY', 'PAYROLL', 'FAILED'] as const).map((t) => (
+          {(['ALL', 'DAILY', 'MONTHLY', 'CASH', 'PAYROLL', 'FAILED'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setFilterType(t)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
                 filterType === t
                   ? 'bg-primary text-white shadow'
                   : 'bg-white border border-outline-variant text-on-surface-variant hover:bg-surface-variant'
               }`}
             >
-              {t === 'ALL'
-                ? 'All Payments'
-                : t === 'DAILY'
-                  ? 'Daily Wages'
-                  : t === 'MONTHLY'
-                    ? 'Monthly Salary'
-                    : t === 'PAYROLL'
-                      ? 'Payroll Batches'
-                      : 'Failed (Retry)'}
+              <span>
+                {t === 'ALL'
+                  ? 'All Payments'
+                  : t === 'DAILY'
+                    ? 'Daily Wages'
+                    : t === 'MONTHLY'
+                      ? 'Monthly Salary'
+                      : t === 'CASH'
+                        ? '💵 Cash in Hand'
+                        : t === 'PAYROLL'
+                          ? 'Payroll Batches'
+                          : 'Failed / Pending'}
+              </span>
+              <span
+                className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
+                  filterType === t
+                    ? 'bg-white/20 text-white'
+                    : t === 'FAILED' && tabCounts.FAILED > 0
+                      ? 'bg-red-100 text-red-700 font-extrabold'
+                      : t === 'CASH' && tabCounts.CASH > 0
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {tabCounts[t]}
+              </span>
             </button>
           ))}
         </div>
@@ -760,10 +907,28 @@ export default function PaymentsPage() {
           <div className="divide-y divide-outline-variant">
             {filteredPayments.length === 0 ? (
               <div className="p-12 text-center">
-                <span className="material-symbols-outlined text-[48px] text-on-surface-variant/40">payments</span>
-                <p className="text-sm text-on-surface-variant mt-2 font-bold">No payment records found.</p>
-                <p className="text-xs text-on-surface-variant mt-1">
-                  Click &ldquo;Pay Unpaid Workers&rdquo; or &ldquo;Single Worker&rdquo; to initiate transfers.
+                <span className={`material-symbols-outlined text-[48px] ${
+                  filterType === 'FAILED' ? 'text-emerald-500' : 'text-on-surface-variant/40'
+                }`}>
+                  {filterType === 'FAILED' ? 'verified' : filterType === 'CASH' ? 'payments' : 'receipt_long'}
+                </span>
+                <p className="text-sm text-on-surface font-bold mt-2">
+                  {filterType === 'FAILED'
+                    ? 'All Disbursements Reconciled & Healthy'
+                    : filterType === 'CASH'
+                      ? 'No Cash in Hand Disbursements Found'
+                      : filterType === 'PAYROLL'
+                        ? 'No Payroll Batches Recorded'
+                        : 'No payment records found'}
+                </p>
+                <p className="text-xs text-on-surface-variant mt-1 max-w-md mx-auto">
+                  {filterType === 'FAILED'
+                    ? 'There are no failed or stuck payouts for this project. All wage transfers have been verified.'
+                    : filterType === 'CASH'
+                      ? 'When executing wage payments, choose "Cash in Hand" for unbanked workers to generate physical disbursement vouchers.'
+                      : filterType === 'PAYROLL'
+                        ? 'Use "Pay Unpaid Workers" or "Disburse Monthly" above to process batch wage payouts.'
+                        : 'Click "Pay Unpaid Workers" or "Single Worker" to initiate wage transfers.'}
                 </p>
               </div>
             ) : (
@@ -775,7 +940,12 @@ export default function PaymentsPage() {
                   <div className="col-span-3">
                     <div className="font-bold text-on-surface text-base">{pay.worker.name}</div>
                     <div className="text-[11px] text-on-surface-variant font-mono mt-0.5">
-                      {pay.worker.upiId ? (
+                      {pay.razorpayPayoutId?.startsWith('CASH') ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-300">
+                          <span className="material-symbols-outlined text-[13px] text-emerald-700">payments</span>
+                          Cash in Hand
+                        </span>
+                      ) : pay.worker.upiId ? (
                         <span className="inline-flex items-center gap-1 text-blue-700">
                           <span className="material-symbols-outlined text-[12px]">smartphone</span>
                           {pay.worker.upiId}
@@ -826,8 +996,10 @@ export default function PaymentsPage() {
                     {pay.razorpayPayoutId ? (
                       <button
                         onClick={() => setSelectedVoucher(pay)}
-                        title="Click to view digital Razorpay receipt"
-                        className="text-[11px] font-mono text-primary font-bold hover:underline truncate max-w-[170px] block text-left"
+                        title="Click to view digital receipt / voucher"
+                        className={`text-[11px] font-mono font-bold hover:underline truncate max-w-[170px] block text-left ${
+                          pay.razorpayPayoutId.startsWith('CASH') ? 'text-emerald-700' : 'text-primary'
+                        }`}
                       >
                         {pay.razorpayPayoutId}
                       </button>
@@ -837,11 +1009,12 @@ export default function PaymentsPage() {
                   </div>
 
                   <div className="col-span-1 flex justify-end gap-1.5">
-                    {pay.status === 'FAILED' && (
+                    {(pay.status === 'FAILED' || pay.status === 'PENDING') && (
                       <button
                         onClick={() => handleRetry(pay.id)}
                         disabled={retryingId === pay.id}
-                        className="px-2.5 py-1 bg-[#ba1a1a] text-white text-[10px] font-bold rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-1 shadow-sm"
+                        className="px-2.5 py-1 bg-[#ba1a1a] text-white text-[10px] font-bold rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-1 shadow-sm transition"
+                        title="Retry disbursement via Razorpay"
                       >
                         <span className="material-symbols-outlined text-[13px]">refresh</span>
                         {retryingId === pay.id ? '...' : 'Retry'}
@@ -892,8 +1065,8 @@ export default function PaymentsPage() {
                   </h3>
                   <p className="text-[11px] text-cyan-200/80 font-mono">
                     {paymentScope === 'ALL'
-                      ? `Batch payout (Duplicates automatically prevented)`
-                      : 'Direct wage transfer via Razorpay'}
+                      ? `Batch payout (Cash in Hand or Razorpay)`
+                      : 'Direct wage transfer (Cash in Hand or Razorpay)'}
                   </p>
                 </div>
               </div>
@@ -1144,11 +1317,23 @@ export default function PaymentsPage() {
                       {(() => {
                         const w = selectedWorker;
                         if (!w) return null;
+                        const hasAccount = !!(w.upiId || w.bankAccountNumber);
                         return (
-                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
-                            <p className="font-bold text-slate-800">Destination Account Preview:</p>
-                            <p className="text-slate-600 font-mono">
-                              {w.upiId ? `Verified UPI ID: ${w.upiId}` : w.bankAccountNumber ? `Bank A/C: ${w.bankAccountNumber} (${w.ifscCode})` : '⚠️ No bank or UPI configured'}
+                          <div className={`p-3 rounded-xl text-xs space-y-1.5 border ${hasAccount ? 'bg-slate-50 border-slate-200' : 'bg-emerald-50 border-emerald-300'}`}>
+                            <div className="flex justify-between items-center">
+                              <p className="font-bold text-slate-800">Destination Account / Method:</p>
+                              {!hasAccount && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900 border border-emerald-400">
+                                  Cash in Hand Ready
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-slate-700 font-mono">
+                              {w.upiId
+                                ? `Verified UPI ID: ${w.upiId}`
+                                : w.bankAccountNumber
+                                  ? `Bank A/C: ${w.bankAccountNumber} (${w.ifscCode || 'IFSC'})`
+                                  : '💵 No online bank account configured — Use "Cash in Hand" option below'}
                             </p>
                           </div>
                         );
@@ -1161,7 +1346,7 @@ export default function PaymentsPage() {
               {/* Execution Options */}
               <div className="pt-2 space-y-2.5">
                 <p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
-                  Choose Razorpay Execution Method:
+                  Choose Execution Method:
                 </p>
 
                 {paymentScope === 'SINGLE' && selectedWorker?.isPaidToday ? (
@@ -1181,6 +1366,35 @@ export default function PaymentsPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* OPTION 1: CASH IN HAND */}
+                    <button
+                      onClick={handleCashPayment}
+                      disabled={
+                        isSubmittingPayment ||
+                        (paymentScope === 'SINGLE' && selectedWorker?.isPaidToday) ||
+                        (paymentScope === 'ALL' && unpaidWorkers.length === 0)
+                      }
+                      className="p-3.5 bg-gradient-to-br from-emerald-900 via-teal-900 to-emerald-950 text-white rounded-xl text-left hover:opacity-95 transition border border-emerald-500/70 shadow-md disabled:opacity-40 disabled:cursor-not-allowed group sm:col-span-2 cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1.5 text-emerald-300 font-bold text-xs">
+                          <span className="material-symbols-outlined text-[18px]">payments</span>
+                          <span>
+                            {paymentScope === 'ALL' ? 'Disburse Cash in Hand to All Unpaid' : 'Pay Cash in Hand (Physical Disbursement)'}
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/30 text-emerald-200 border border-emerald-400/40">
+                          No Bank A/C Required · Instant Voucher
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-100/90 leading-snug">
+                        {paymentScope === 'ALL'
+                          ? `Record physical cash wage handover of ${INR(calculateTotalBatchAmount())} for ${unpaidWorkers.length} workers without requiring bank or UPI accounts.`
+                          : `Hand over physical cash to ${selectedWorker?.name || 'worker'}. Directly generates an official printable cash voucher receipt.`}
+                      </p>
+                    </button>
+
+                    {/* OPTION 2: RAZORPAYX INSTANT */}
                     <button
                       onClick={handleInstantRazorpayTransfer}
                       disabled={
@@ -1188,7 +1402,7 @@ export default function PaymentsPage() {
                         (paymentScope === 'SINGLE' && selectedWorker?.isPaidToday) ||
                         (paymentScope === 'ALL' && unpaidWorkers.length === 0)
                       }
-                      className="p-3.5 bg-gradient-to-br from-[#0d1c32] to-[#1c3a6b] text-white rounded-xl text-left hover:opacity-95 transition border border-blue-900 shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="p-3.5 bg-gradient-to-br from-[#0d1c32] to-[#1c3a6b] text-white rounded-xl text-left hover:opacity-95 transition border border-blue-900 shadow-md disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
                       <div className="flex items-center gap-1.5 text-cyan-300 font-bold text-xs mb-1">
                         <span className="material-symbols-outlined text-[16px]">bolt</span>
@@ -1203,6 +1417,7 @@ export default function PaymentsPage() {
                       </p>
                     </button>
 
+                    {/* OPTION 3: RAZORPAY CHECKOUT */}
                     <button
                       onClick={handleRazorpayCheckout}
                       disabled={
@@ -1210,7 +1425,7 @@ export default function PaymentsPage() {
                         (paymentScope === 'SINGLE' && selectedWorker?.isPaidToday) ||
                         (paymentScope === 'ALL' && unpaidWorkers.length === 0)
                       }
-                      className="p-3.5 bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-xl text-left hover:opacity-95 transition border border-slate-700 shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="p-3.5 bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-xl text-left hover:opacity-95 transition border border-slate-700 shadow-md disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
                       <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs mb-1">
                         <span className="material-symbols-outlined text-[16px]">credit_card</span>
@@ -1424,12 +1639,24 @@ export default function PaymentsPage() {
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-outline-variant overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="bg-[#0d1c32] text-white p-5 flex items-center justify-between border-b border-blue-900">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-cyan-400/20 flex items-center justify-center border border-cyan-400/40">
-                  <span className="material-symbols-outlined text-cyan-300 text-[18px]">verified</span>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${
+                  selectedVoucher.razorpayPayoutId?.startsWith('CASH')
+                    ? 'bg-emerald-400/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-cyan-400/20 border-cyan-400/40 text-cyan-300'
+                }`}>
+                  <span className="material-symbols-outlined text-[18px]">
+                    {selectedVoucher.razorpayPayoutId?.startsWith('CASH') ? 'payments' : 'verified'}
+                  </span>
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-base leading-tight">Payment Voucher</h3>
-                  <p className="text-[11px] text-cyan-200/80 font-mono">SiteTrack AI × Razorpay Verified Settlement</p>
+                  <h3 className="font-extrabold text-base leading-tight">
+                    {selectedVoucher.razorpayPayoutId?.startsWith('CASH') ? 'Official Cash Payment Voucher' : 'Payment Voucher'}
+                  </h3>
+                  <p className="text-[11px] text-cyan-200/80 font-mono">
+                    {selectedVoucher.razorpayPayoutId?.startsWith('CASH')
+                      ? 'Physical Cash Disbursement Record'
+                      : 'SiteTrack AI × Razorpay Verified Settlement'}
+                  </p>
                 </div>
               </div>
               <button
@@ -1449,7 +1676,7 @@ export default function PaymentsPage() {
                 <div className="text-right">
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-600 text-white shadow-sm">
                     <span className="material-symbols-outlined text-[12px]">check</span>
-                    {selectedVoucher.status}
+                    {selectedVoucher.razorpayPayoutId?.startsWith('CASH') ? 'PAID IN CASH' : selectedVoucher.status}
                   </span>
                   <p className="text-[10px] text-emerald-800 mt-1 font-mono">
                     {new Date(selectedVoucher.paymentDate).toLocaleString('en-IN')}
@@ -1463,28 +1690,41 @@ export default function PaymentsPage() {
                   <span className="font-bold text-on-surface">{selectedVoucher.worker.name}</span>
                 </div>
                 <div className="p-3 flex justify-between">
-                  <span className="text-on-surface-variant font-medium">Razorpay Reference ID</span>
-                  <span className="font-mono font-bold text-primary select-all">
+                  <span className="text-on-surface-variant font-medium">
+                    {selectedVoucher.razorpayPayoutId?.startsWith('CASH') ? 'Cash Voucher Number' : 'Razorpay Reference ID'}
+                  </span>
+                  <span className="font-mono font-bold text-emerald-700 select-all">
                     {selectedVoucher.razorpayPayoutId || 'sim_payout_auto'}
                   </span>
                 </div>
                 <div className="p-3 flex justify-between bg-surface-container-low/40">
-                  <span className="text-on-surface-variant font-medium">Destination Account</span>
-                  <span className="font-mono font-bold text-on-surface">
-                    {selectedVoucher.worker.upiId
-                      ? `UPI: ${selectedVoucher.worker.upiId}`
-                      : selectedVoucher.worker.bankAccountNumber
-                        ? `A/C ••••${selectedVoucher.worker.bankAccountNumber.slice(-4)}`
-                        : 'Bank IMPS'}
+                  <span className="text-on-surface-variant font-medium">Disbursement Mode</span>
+                  <span className="font-bold text-on-surface flex items-center gap-1">
+                    {selectedVoucher.razorpayPayoutId?.startsWith('CASH') ? (
+                      <span className="text-emerald-700 font-extrabold flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[14px]">payments</span>
+                        Physical Cash Handover
+                      </span>
+                    ) : selectedVoucher.worker.upiId ? (
+                      `UPI: ${selectedVoucher.worker.upiId}`
+                    ) : selectedVoucher.worker.bankAccountNumber ? (
+                      `A/C ••••${selectedVoucher.worker.bankAccountNumber.slice(-4)}`
+                    ) : (
+                      'Bank IMPS'
+                    )}
                   </span>
                 </div>
                 <div className="p-3 flex justify-between">
-                  <span className="text-on-surface-variant font-medium">Payment Type</span>
+                  <span className="text-on-surface-variant font-medium">Payment Classification</span>
                   <span className="font-bold uppercase text-on-surface">{selectedVoucher.type}</span>
                 </div>
                 <div className="p-3 flex justify-between bg-surface-container-low/40">
-                  <span className="text-on-surface-variant font-medium">Settlement Gateway</span>
-                  <span className="font-bold text-on-surface">RazorpayX Direct API</span>
+                  <span className="text-on-surface-variant font-medium">Verification Status</span>
+                  <span className="font-bold text-emerald-700">
+                    {selectedVoucher.razorpayPayoutId?.startsWith('CASH')
+                      ? 'Verified on Site by Authorized Supervisor'
+                      : 'RazorpayX Direct API Gateway'}
+                  </span>
                 </div>
               </div>
             </div>
