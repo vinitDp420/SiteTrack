@@ -173,6 +173,7 @@ export default function LoginPage() {
                     <button
                       key={acc.role}
                       type="button"
+                      suppressHydrationWarning
                       onClick={() => handleRoleSelect(acc)}
                       className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         isActive
@@ -219,6 +220,7 @@ export default function LoginPage() {
                     name="email"
                     type="text"
                     required
+                    suppressHydrationWarning
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="name@company.com"
@@ -249,6 +251,7 @@ export default function LoginPage() {
                     name="password"
                     type={showPassword ? 'text' : 'password'}
                     required
+                    suppressHydrationWarning
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
@@ -256,6 +259,7 @@ export default function LoginPage() {
                   />
                   <button
                     type="button"
+                    suppressHydrationWarning
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
@@ -270,6 +274,7 @@ export default function LoginPage() {
                 <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600 select-none">
                   <input
                     type="checkbox"
+                    suppressHydrationWarning
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
@@ -282,6 +287,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
+                suppressHydrationWarning
                 className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer mt-2"
               >
                 {loading ? (
@@ -310,6 +316,7 @@ export default function LoginPage() {
                     <button
                       key={acc.role}
                       type="button"
+                      suppressHydrationWarning
                       onClick={() => handleRoleSelect(acc)}
                       className={`w-full text-left p-2.5 rounded-lg border text-xs flex items-center justify-between transition-colors cursor-pointer ${
                         isCurrent
@@ -339,7 +346,7 @@ export default function LoginPage() {
           {/* Simple Bottom Info */}
           <div className="text-center mt-6 text-xs text-slate-400 space-y-1">
             <p>Protected by SiteTrack Security Protocols</p>
-            <p className="text-slate-400/80">© {new Date().getFullYear()} SiteTrack Construction Systems</p>
+            <p className="text-slate-400/80" suppressHydrationWarning>© {new Date().getFullYear()} SiteTrack Construction Systems</p>
           </div>
 
         </div>

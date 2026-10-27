@@ -20,18 +20,25 @@ export default function AdminDashboard() {
   const { selectedProject } = useProject();
   const [activeWorkersCount, setActiveWorkersCount] = useState(0);
   const [tasksCount, setTasksCount] = useState(0);
+  const [totalHoursToday, setTotalHoursToday] = useState(0);
+  const [laborBudgetSpent, setLaborBudgetSpent] = useState(0);
   const [activeAlertsCount, setActiveAlertsCount] = useState(0);
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
 
   const role = (session?.user as any)?.role || 'SUPERVISOR';
 
   const fetchDashboardData = () => {
-    // Fetch count of active workers
+    // Fetch active workers (filtered by selected project if one is active)
     fetch('/api/workers')
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
-          setActiveWorkersCount(data.filter((w) => w.status === 'ACTIVE').length);
+          const filtered = selectedProject
+            ? data.filter((w) => w.status === 'ACTIVE' && w.projectId === selectedProject.id)
+            : data.filter((w) => w.status === 'ACTIVE');
+          setActiveWorkersCount(filtered.length);
+        } else {
+          setActiveWorkersCount(0);
         }
       })
       .catch((e) => console.error(e));
@@ -40,40 +47,73 @@ export default function AdminDashboard() {
     fetch('/api/fraud-alerts')
       .then((res) => res.json())
       .then((data) => {
-        if (data.stats) {
+        if (data.alerts && Array.isArray(data.alerts)) {
+          const active = data.alerts.filter((a: any) => {
+            const isPending = a.status === 'PENDING' || a.status === 'INVESTIGATING';
+            if (!isPending) return false;
+            if (selectedProject) return a.worker?.projectId === selectedProject.id;
+            return true;
+          });
+          setActiveAlertsCount(active.length);
+        } else if (data.stats) {
           setActiveAlertsCount(data.stats.pending + data.stats.investigating);
+        } else {
+          setActiveAlertsCount(0);
         }
       })
       .catch((e) => console.error(e));
 
-    // Fetch count of tasks
-    if (selectedProject) {
-      fetch(`/api/tasks?projectId=${selectedProject.id}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            setTasksCount(data.filter((t) => t.status === 'PENDING').length);
-          }
-        })
-        .catch((e) => console.error(e));
+    // Fetch count of pending tasks for this project
+    const taskUrl = selectedProject ? `/api/tasks?projectId=${selectedProject.id}` : '/api/tasks';
+    fetch(taskUrl)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setTasksCount(data.filter((t) => t.status === 'PENDING').length);
+        } else {
+          setTasksCount(0);
+        }
+      })
+      .catch((e) => console.error(e));
 
-      // Fetch recent attendance activity
-      fetch(`/api/attendance?projectId=${selectedProject.id}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            setRecentLogs(data.slice(0, 5));
-          }
-        })
-        .catch((e) => console.error(e));
-    }
+    // Fetch recent attendance activity & compute real hours worked today
+    const attUrl = selectedProject ? `/api/attendance?projectId=${selectedProject.id}` : '/api/attendance';
+    fetch(attUrl)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setRecentLogs(data.slice(0, 5));
+          const todayStr = new Date().toDateString();
+          const todayLogs = data.filter((a: any) => new Date(a.date || a.checkInTime).toDateString() === todayStr);
+          const hours = todayLogs.reduce((acc: number, a: any) => acc + (Number(a.hoursWorked) || 0), 0);
+          setTotalHoursToday(hours);
+        } else {
+          setRecentLogs([]);
+          setTotalHoursToday(0);
+        }
+      })
+      .catch((e) => console.error(e));
+
+    // Fetch labor budget disbursed for this project
+    const payUrl = selectedProject ? `/api/payments?projectId=${selectedProject.id}` : '/api/payments';
+    fetch(payUrl)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          const total = data
+            .filter((p: any) => p.status === 'SUCCESS')
+            .reduce((acc: number, p: any) => acc + (Number(p.amount) || 0), 0);
+          setLaborBudgetSpent(total);
+        } else {
+          setLaborBudgetSpent(0);
+        }
+      })
+      .catch((e) => console.error(e));
   };
 
   useEffect(() => {
     fetchDashboardData();
   }, [selectedProject]);
-
-
 
   return (
     <div className="space-y-6">
@@ -87,12 +127,12 @@ export default function AdminDashboard() {
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Metric 1 */}
+        {/* Metric 1: Active Workers */}
         <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl shadow-[0_2px_8px_rgba(13,28,50,0.05)]">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Active Workers</p>
-              <h3 className="text-3xl font-bold text-on-surface mt-2">{activeWorkersCount || 3}</h3>
+              <h3 className="text-3xl font-bold text-on-surface mt-2">{activeWorkersCount}</h3>
             </div>
             <div className="p-3 bg-secondary-container text-on-secondary-container rounded-lg">
               <span className="material-symbols-outlined text-[24px]">groups</span>
@@ -100,34 +140,34 @@ export default function AdminDashboard() {
           </div>
           <p className="text-xs text-on-surface-variant mt-4 flex items-center gap-1">
             <span className="material-symbols-outlined text-[#008000] text-[16px] fill">trending_up</span>
-            <span className="text-[#008000] font-bold">+12%</span> vs yesterday
+            <span className="text-[#008000] font-bold">{activeWorkersCount} active</span> {activeWorkersCount > 0 ? 'assigned to project' : 'clean state'}
           </p>
         </div>
 
-        {/* Metric 2 */}
+        {/* Metric 2: Total Hours Today */}
         <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl shadow-[0_2px_8px_rgba(13,28,50,0.05)]">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Total Hours Today</p>
-              <h3 className="text-3xl font-bold text-on-surface mt-2">24.5 hr</h3>
+              <h3 className="text-3xl font-bold text-on-surface mt-2">{totalHoursToday.toFixed(1)} hr</h3>
             </div>
             <div className="p-3 bg-[#ffddb8] text-[#2a1700] rounded-lg">
               <span className="material-symbols-outlined text-[24px]">schedule</span>
             </div>
           </div>
           <p className="text-xs text-on-surface-variant mt-4 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[#008000] text-[16px] fill">trending_up</span>
-            <span className="text-[#008000] font-bold">+8 hr</span> vs target
+            <span className="material-symbols-outlined text-[#008000] text-[16px] fill">schedule</span>
+            <span className="text-[#008000] font-bold">{totalHoursToday.toFixed(1)} hr</span> logged today
           </p>
         </div>
 
-        {/* Metric 3 */}
+        {/* Metric 3: Labor Budget Spent / Tasks */}
         {role === 'ADMIN' ? (
           <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl shadow-[0_2px_8px_rgba(13,28,50,0.05)]">
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Labor Budget Spent</p>
-                <h3 className="text-3xl font-bold text-on-surface mt-2">₹57,420</h3>
+                <h3 className="text-3xl font-bold text-on-surface mt-2">₹{laborBudgetSpent.toLocaleString('en-IN')}</h3>
               </div>
               <div className="p-3 bg-[#d5e0f7] text-[#0d1c32] rounded-lg">
                 <span className="material-symbols-outlined text-[24px]">payments</span>
@@ -135,7 +175,7 @@ export default function AdminDashboard() {
             </div>
             <p className="text-xs text-on-surface-variant mt-4 flex items-center gap-1">
               <span className="material-symbols-outlined text-on-surface-variant text-[16px]">show_chart</span>
-              On track with estimates
+              {laborBudgetSpent > 0 ? 'Disbursed via automated payout' : '₹0 disbursed (Fresh state)'}
             </p>
           </div>
         ) : (
@@ -151,12 +191,12 @@ export default function AdminDashboard() {
             </div>
             <p className="text-xs text-on-surface-variant mt-4 flex items-center gap-1">
               <span className="material-symbols-outlined text-on-surface-variant text-[16px]">assignment_turned_in</span>
-              Need supervisor follow-up
+              {tasksCount > 0 ? 'Need supervisor follow-up' : 'All daily tasks clear'}
             </p>
           </div>
         )}
 
-        {/* Metric 4 */}
+        {/* Metric 4: Active Alerts */}
         {role === 'ADMIN' ? (
           <Link
             href="/admin/fraud-alerts"
@@ -174,8 +214,8 @@ export default function AdminDashboard() {
               </div>
             </div>
             <p className="text-xs text-[#ba1a1a] mt-4 flex items-center gap-1 font-bold">
-              <span className="material-symbols-outlined text-[16px]">error</span>
-              {activeAlertsCount > 0 ? `${activeAlertsCount} anomalies require review` : 'All sites in compliance'}
+              <span className="material-symbols-outlined text-[16px]">{activeAlertsCount > 0 ? 'error' : 'verified_user'}</span>
+              {activeAlertsCount > 0 ? `${activeAlertsCount} anomalies require review` : 'All sites in compliance (0 alerts)'}
             </p>
           </Link>
         ) : (
@@ -216,8 +256,7 @@ export default function AdminDashboard() {
           </div>
           <CCTVFeed
             cameraName="GATE 1 - MAIN ENTRANCE"
-            defaultWorkerName="Vinit Patil"
-            defaultConfidence="98.4%"
+            projectId={selectedProject?.id}
             onAttendanceUpdated={fetchDashboardData}
           />
 

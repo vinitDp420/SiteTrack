@@ -14,6 +14,7 @@ async function main() {
 
   // 2. Clear old data in strict reverse-dependency order
   console.log('Cleaning old test data...');
+  await prisma.faceEmbedding.deleteMany({});
   await prisma.fraudAlert.deleteMany({});
   await prisma.vehicleLog.deleteMany({});
   await prisma.dailyTask.deleteMany({});
@@ -21,6 +22,7 @@ async function main() {
   await prisma.payment.deleteMany({});
   await prisma.payroll.deleteMany({});
   await prisma.attendance.deleteMany({});
+  await prisma.camera.deleteMany({});
   await prisma.materialRequest.deleteMany({});
   await prisma.stockItem.deleteMany({});
   await prisma.dailyReport.deleteMany({});
@@ -30,6 +32,13 @@ async function main() {
   await prisma.reminder.deleteMany({});
   await prisma.worker.deleteMany({});
   await prisma.supplier.deleteMany({});
+  await prisma.user.deleteMany({
+    where: {
+      email: {
+        notIn: ['admin@sitetrack.com', 'supervisor@sitetrack.com', 'worker@sitetrack.com'],
+      },
+    },
+  });
 
   // 3. Upsert Users
   console.log('Seeding Users...');

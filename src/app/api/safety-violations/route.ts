@@ -13,40 +13,31 @@ export async function POST(req: Request) {
       worker = await prisma.worker.findUnique({ where: { id: customWorkerId } });
     }
 
-    // 2. Direct workerName search if provided
-    if (!worker && customWorkerName) {
+    // 2. Direct workerName search if provided and not generic unregistered label
+    const isGeneric = !customWorkerName || 
+      customWorkerName.toLowerCase().includes('unregistered') || 
+      customWorkerName.toLowerCase().includes('unknown') ||
+      customWorkerName.toLowerCase().startsWith('worker #');
+
+    if (!worker && customWorkerName && !isGeneric) {
       worker = await prisma.worker.findFirst({
-        where: { name: { contains: customWorkerName, mode: 'insensitive' } },
+        where: { name: { equals: customWorkerName.trim(), mode: 'insensitive' } },
       });
-    }
-
-    // 3. Find worker currently on site (open attendance session)
-    if (!worker) {
-      let searchConditions: any = { checkOutTime: null };
-      if (projectId && projectId !== 'demo' && projectId !== 'all') {
-        searchConditions.projectId = projectId;
-      }
-
-      const activeSession = await prisma.attendance.findFirst({
-        where: searchConditions,
-        include: { worker: true },
-        orderBy: { checkInTime: 'desc' },
-      });
-
-      if (activeSession?.worker) {
-        worker = activeSession.worker;
+      if (!worker) {
+        worker = await prisma.worker.findFirst({
+          where: { name: { contains: customWorkerName.trim(), mode: 'insensitive' } },
+        });
       }
     }
 
-    // 4. Fallback: Find any active worker on the project or first available worker
+    // If no verified worker matches the face, do NOT falsely blame an innocent worker!
     if (!worker) {
-      worker = await prisma.worker.findFirst({
-        where: projectId && projectId !== 'demo' && projectId !== 'all' ? { projectId } : {},
+      return NextResponse.json({
+        success: true,
+        message: `Safety violation detected for ${customWorkerName || 'Unregistered Person'}. (No registered face match)`,
+        workerName: customWorkerName || 'Unregistered Person',
+        workerId: null,
       });
-    }
-
-    if (!worker) {
-      return NextResponse.json({ success: false, message: 'No registered workers found to log violation.' }, { status: 404 });
     }
 
     const streamSource = cameraName || 'CCTV_ZONE_1';

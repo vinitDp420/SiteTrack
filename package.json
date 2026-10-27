@@ -19,7 +19,7 @@
     "face-api.js": "^0.22.2",
     "hls.js": "^1.7.3",
     "lucide-react": "^1.43.0",
-    "next": "16.3.0",
+    "next": "^16.4.3",
     "next-auth": "^4.24.8",
     "peerjs": "^1.5.5",
     "react": "19.2.8",
@@ -32,9 +32,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.0",
+    "eslint-config-next": "^16.4.3",
     "prisma": "^5.20.0",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "node-fetch": "^2.6.12"
   }
 }

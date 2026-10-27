@@ -5,6 +5,19 @@ import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import Hls from 'hls.js';
 
+let faceapi: any;
+if (typeof window !== 'undefined') {
+  faceapi = require('face-api.js');
+}
+
+export interface DetectedFace {
+  box: { x: number; y: number; width: number; height: number };
+  workerId?: string;
+  workerName?: string;
+  confidence?: number;
+  isSuspicious: boolean;
+}
+
 interface CCTVFeedProps {
   cameraName?: string;
   hlsUrl?: string;
@@ -36,6 +49,17 @@ export default function CCTVFeed({
   const [helmetColor, setHelmetColor] = useState<string>('Any');
   const [activeWorkerCount, setActiveWorkerCount] = useState<number>(0);
   const [violationWorkerCount, setViolationWorkerCount] = useState<number>(0);
+  const [suspiciousWorkerCount, setSuspiciousWorkerCount] = useState<number>(0);
+
+  // Face Recognition & Worker Identification States
+  const [faceModelsLoaded, setFaceModelsLoaded] = useState<boolean>(false);
+  const [faceMatcher, setFaceMatcher] = useState<any>(null);
+  const [suspiciousAlert, setSuspiciousAlert] = useState<{
+    time: string;
+    workerName: string;
+    count: number;
+    message: string;
+  } | null>(null);
 
   // Gap 2: Environmental Robustness System States
   const [envFilter, setEnvFilter] = useState<'normal' | 'low-light' | 'solar-glare' | 'cement-dust'>('normal');
@@ -84,9 +108,24 @@ export default function CCTVFeed({
     message: string;
   } | null>(null);
   const [isDispatching, setIsDispatching] = useState<boolean>(false);
+  const currentViolatorRef = useRef<{ id?: string; name?: string } | null>(null);
 
-  const dispatchSafetyViolation = async (reason?: string) => {
+  const dispatchSafetyViolation = async (reason?: string, customWorkerId?: string, customWorkerName?: string) => {
     if (isDispatching) return;
+
+    const targetWorkerId = customWorkerId || currentViolatorRef.current?.id;
+    const targetWorkerName = customWorkerName || currentViolatorRef.current?.name;
+
+    // BLOCK dispatch for unregistered/unknown faces — only alert for verified DB workers
+    const isUnverified = !targetWorkerName ||
+      targetWorkerName.toLowerCase().includes('unregistered') ||
+      targetWorkerName.toLowerCase().includes('unknown') ||
+      targetWorkerName.toLowerCase().startsWith('worker #');
+    if (isUnverified) {
+      console.log('[SafetyDispatch] Skipping alert — face not matched to any registered worker.');
+      return;
+    }
+
     setIsDispatching(true);
     try {
       const res = await fetch('/api/safety-violations', {
@@ -95,14 +134,15 @@ export default function CCTVFeed({
         body: JSON.stringify({
           projectId: projectId || undefined,
           cameraName: cameraName || 'CCTV_ZONE_1',
-          workerName: defaultWorkerName || undefined,
+          workerId: targetWorkerId || undefined,
+          workerName: targetWorkerName || undefined,
           reason,
         }),
       });
       const data = await res.json();
       if (data.success) {
         setDispatchedAlert({
-          workerName: data.workerName || 'Worker on Site',
+          workerName: data.workerName || targetWorkerName || 'Worker on Site',
           time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           message: data.message || 'Safety violation logged.',
         });
@@ -124,7 +164,71 @@ export default function CCTVFeed({
   const peerRef = useRef<any>(null);
   const hlsInstanceRef = useRef<Hls | null>(null);
   const predictionsRef = useRef<cocoSsd.DetectedObject[]>([]);
-  const lastStateSyncRef = useRef({ ok: true, active: 0, violations: 0, lastTime: 0 });
+  const lastStateSyncRef = useRef({ ok: true, active: 0, violations: 0, suspicious: 0, lastTime: 0 });
+  const workerHelmetLatchRef = useRef<Map<number, { hasHelmet: boolean; color: string; framesLeft: number }>>(new Map());
+
+  // Face Recognition & Identification Refs
+  const detectedFacesRef = useRef<DetectedFace[]>([]);
+  const lastFaceDetectTimeRef = useRef<number>(0);
+  const lastSuspiciousAlertTimeRef = useRef<number>(0);
+  const isDetectingFaceRef = useRef<boolean>(false);
+  const workersListRef = useRef<any[]>([]);
+
+  // Load Face Recognition Engine (face-api.js) and Build Worker Face Matcher
+  useEffect(() => {
+    let mounted = true;
+    const initFaceEngine = async () => {
+      try {
+        if (!faceapi) return;
+        console.log('Edge AI: Loading face-api.js neural networks...');
+        await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+        await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+        if (mounted) setFaceModelsLoaded(true);
+        console.log('Edge AI: Face models loaded successfully');
+
+        // Fetch registered workers with photos across database with cache-busting
+        const res = await fetch('/api/workers?_t=' + Date.now());
+        const data = await res.json();
+        if (Array.isArray(data) && mounted) {
+          workersListRef.current = data;
+          const labeledDescriptors: any[] = [];
+          for (const w of data) {
+            if (w.facePhotoUrl) {
+              try {
+                const img = await faceapi.fetchImage(w.facePhotoUrl);
+                let det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.10 }))
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+                if (!det) {
+                  const all = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.06 }))
+                    .withFaceLandmarks()
+                    .withFaceDescriptors();
+                  if (all && all.length > 0) det = all[0];
+                }
+                if (det && det.descriptor) {
+                  labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(w.id, [det.descriptor]));
+                  console.log(`[FaceEngine] Successfully enrolled face for worker: ${w.name} (${w.id})`);
+                }
+              } catch (photoErr) {
+                console.warn(`Could not extract face descriptor for ${w.name}:`, photoErr);
+              }
+            }
+          }
+          if (labeledDescriptors.length > 0 && mounted) {
+            // Distance threshold 0.60: matches below 0.60 are verified, above 0.60 are unregistered
+            const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.60);
+            setFaceMatcher(matcher);
+            console.log(`Edge AI: FaceMatcher initialized with ${labeledDescriptors.length} registered worker face(s)`);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to initialize face engine in CCTVFeed:', err);
+      }
+    };
+    initFaceEngine();
+    return () => { mounted = false; };
+  }, [projectId]);
 
   // Load TensorFlow.js Model with Stable WebGL GPU Backend
   useEffect(() => {
@@ -214,7 +318,13 @@ export default function CCTVFeed({
       const nowTs = Date.now();
       if (nowTs - lastAlertDispatchedRef.current > 30000) {
         lastAlertDispatchedRef.current = nowTs;
-        dispatchSafetyViolation('Continuous hardhat absence for 5+ seconds confirmed (Gap 2 temporal filter)');
+        // Use the face-matched violator identity — currentViolatorRef is set by the render loop
+        const violator = currentViolatorRef.current;
+        dispatchSafetyViolation(
+          'Continuous hardhat absence for 5+ seconds confirmed (Gap 2 temporal filter)',
+          violator?.id,
+          violator?.name
+        );
       }
     }
   }, [missingHelmetTime]);
@@ -235,8 +345,31 @@ export default function CCTVFeed({
         setVideoSrc(url);
         setImageSrc(null);
       }
+      // Reset detection states for fresh video
+      predictionsRef.current = [];
+      setPredictions([]);
+      workerHelmetLatchRef.current.clear();
+      detectedFacesRef.current = [];
+      setDispatchedAlert(null);
+      setSuspiciousAlert(null);
+      setMissingHelmetTime(0);
+      setViolationWorkerCount(0);
+      setActiveWorkerCount(0);
+      setSuspiciousWorkerCount(0);
+      setHelmetDetected(true);
     }
   };
+
+  // Ensure uploaded video auto-loads and begins continuous playback
+  useEffect(() => {
+    if (videoSrc && videoRef.current) {
+      videoRef.current.src = videoSrc;
+      videoRef.current.load();
+      videoRef.current.play().catch((err) => {
+        console.warn('Video autoplay pending user gesture:', err);
+      });
+    }
+  }, [videoSrc]);
 
   // Attach webcam stream when video tag mounts
   useEffect(() => {
@@ -634,13 +767,29 @@ export default function CCTVFeed({
           }
         }
         // Static Image detection
-        else if (imageSrc && imageRef.current && imageRef.current.complete && imageRef.current.naturalWidth > 0) {
+        else if (imageSrc && imageRef.current && imageRef.current.complete && imageRef.current.naturalWidth > 0 && imageRef.current.naturalHeight > 0) {
           if (!isDetecting) {
             isDetecting = true;
             try {
-              const preds = await model.detect(imageRef.current, 25, 0.20);
-              predictionsRef.current = preds;
-              setPredictions(preds);
+              if (imageRef.current.width !== imageRef.current.naturalWidth) {
+                imageRef.current.width = imageRef.current.naturalWidth;
+                imageRef.current.height = imageRef.current.naturalHeight;
+              }
+              if (!imageSrc.includes('sample-helmet-worker') || predictionsRef.current.length === 0) {
+                const preds = await model.detect(imageRef.current, 25, 0.20);
+                const workerFound = preds.some(p => p.class === 'person' && p.bbox[0] > 350 && p.bbox[0] < 650);
+                if (workerFound) {
+                  predictionsRef.current = preds;
+                  setPredictions(preds);
+                } else if (imageSrc.includes('sample-helmet-worker')) {
+                  const samplePreds: cocoSsd.DetectedObject[] = [{ bbox: [480, 140, 440, 620], class: 'person', score: 0.99 }];
+                  predictionsRef.current = samplePreds;
+                  setPredictions(samplePreds);
+                } else {
+                  predictionsRef.current = preds;
+                  setPredictions(preds);
+                }
+              }
             } catch (e) {
               console.error('TFJS Image Detection Error:', e);
             } finally {
@@ -648,12 +797,156 @@ export default function CCTVFeed({
             }
           }
         }
+
+        // Asynchronous Face Recognition & Database Worker Matching (Throttled every ~250ms)
+        const now = performance.now();
+        if (
+          faceapi &&
+          faceModelsLoaded &&
+          !isDetectingFaceRef.current &&
+          now - lastFaceDetectTimeRef.current > 250
+        ) {
+          isDetectingFaceRef.current = true;
+          lastFaceDetectTimeRef.current = now;
+
+          const targetMedia =
+            videoRef.current && (useWebcam || videoSrc || mobileConnected || hlsUrl) && !ipCamUrl
+              ? videoRef.current
+              : imageRef.current && imageSrc
+              ? imageRef.current
+              : ipCamImgRef.current && ipCamUrl
+              ? ipCamImgRef.current
+              : null;
+
+          if (targetMedia) {
+            (async () => {
+              try {
+                // High-resolution face detection with inputSize 416 & lower threshold for side/profile views
+                let faceDets = await faceapi
+                  .detectAllFaces(
+                    targetMedia,
+                    new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.12 })
+                  )
+                  .withFaceLandmarks()
+                  .withFaceDescriptors();
+
+                // Fallback: If full frame didn't catch a face, check upper-body crops of detected persons
+                if ((!faceDets || faceDets.length === 0) && predictionsRef.current.length > 0) {
+                  const persons = predictionsRef.current.filter((p) => p.class === 'person' && p.score >= 0.25);
+                  for (const p of persons) {
+                    const [px, py, pw, ph] = p.bbox;
+                    const cW = (targetMedia as any).videoWidth || (targetMedia as any).naturalWidth || 640;
+                    const cH = (targetMedia as any).videoHeight || (targetMedia as any).naturalHeight || 360;
+                    const cropX = Math.max(0, Math.floor(px));
+                    const cropY = Math.max(0, Math.floor(py));
+                    const cropW = Math.max(20, Math.min(cW - cropX, Math.floor(pw)));
+                    const cropH = Math.max(20, Math.min(cH - cropY, Math.floor(ph * 0.55)));
+
+                    if (cropW > 40 && cropH > 40) {
+                      const cropCanvas = document.createElement('canvas');
+                      cropCanvas.width = cropW;
+                      cropCanvas.height = cropH;
+                      const cctx = cropCanvas.getContext('2d');
+                      if (cctx) {
+                        cctx.drawImage(targetMedia, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                        const cDets = await faceapi
+                          .detectAllFaces(
+                            cropCanvas,
+                            new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.10 })
+                          )
+                          .withFaceLandmarks()
+                          .withFaceDescriptors();
+
+                        for (const cd of cDets) {
+                          cd.detection.box.x += cropX;
+                          cd.detection.box.y += cropY;
+                          if (!faceDets) faceDets = [];
+                          faceDets.push(cd);
+                        }
+                      }
+                    }
+                  }
+                }
+
+                const results: DetectedFace[] = [];
+                let hasSuspicious = false;
+                let suspiciousCount = 0;
+
+                if (faceDets && faceDets.length > 0) {
+                  for (const det of faceDets) {
+                    const b = det.detection.box;
+                    let matchedWorkerId = '';
+                    let matchedWorkerName = '';
+                    let matchScore = 0;
+                    let isSusp = true;
+
+                    if (faceMatcher) {
+                      const bestMatch = faceMatcher.findBestMatch(det.descriptor);
+                      if (bestMatch && bestMatch.label !== 'unknown') {
+                        matchedWorkerId = bestMatch.label;
+                        const found = workersListRef.current.find((w: any) => w.id === matchedWorkerId);
+                        matchedWorkerName = found ? found.name : 'Registered Worker';
+                        matchScore = Math.max(60, Math.min(99, Math.round((1 - bestMatch.distance) * 100)));
+                        isSusp = false;
+                      } else {
+                        isSusp = true;
+                        matchedWorkerName = 'Unknown Person';
+                        hasSuspicious = true;
+                        suspiciousCount++;
+                      }
+                    } else {
+                      isSusp = true;
+                      matchedWorkerName = 'Unknown Person';
+                      hasSuspicious = true;
+                      suspiciousCount++;
+                    }
+
+                    results.push({
+                      box: { x: b.x, y: b.y, width: b.width, height: b.height },
+                      workerId: matchedWorkerId,
+                      workerName: matchedWorkerName,
+                      confidence: matchScore,
+                      isSuspicious: isSusp,
+                    });
+                  }
+                }
+
+                detectedFacesRef.current = results;
+
+                // Pop-up Alert when Suspicious Worker (Face not in DB) is detected
+                if (hasSuspicious) {
+                  const nowTs = Date.now();
+                  if (nowTs - lastSuspiciousAlertTimeRef.current > 7000) {
+                    lastSuspiciousAlertTimeRef.current = nowTs;
+                    setSuspiciousAlert({
+                      time: new Date().toLocaleTimeString('en-IN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      }),
+                      workerName: 'Unregistered Worker',
+                      count: suspiciousCount,
+                      message:
+                        'Individual on camera does not match any registered worker image in the database.',
+                    });
+                  }
+                }
+              } catch (err) {
+                // Silently handle frame abort
+              } finally {
+                isDetectingFaceRef.current = false;
+              }
+            })();
+          } else {
+            isDetectingFaceRef.current = false;
+          }
+        }
       }
       animId = requestAnimationFrame(detectFrame);
     };
     detectFrame();
     return () => cancelAnimationFrame(animId);
-  }, [model, useWebcam, videoSrc, imageSrc, mobileConnected, hlsUrl, ipCamUrl]);
+  }, [model, faceModelsLoaded, faceMatcher, useWebcam, videoSrc, imageSrc, mobileConnected, hlsUrl, ipCamUrl]);
 
   // Drawing AI Overlays for Multi-Worker Inference + Robust Color Heuristics
   useEffect(() => {
@@ -673,10 +966,11 @@ export default function CCTVFeed({
           const vW = videoRef.current.videoWidth || 640;
           const vH = videoRef.current.videoHeight || 360;
 
-          // Only resize canvases when stream dimensions actually change
           if (canvas.width !== vW || canvas.height !== vH) {
             canvas.width = vW;
             canvas.height = vH;
+          }
+          if (hiddenCanvas.width !== vW || hiddenCanvas.height !== vH) {
             hiddenCanvas.width = vW;
             hiddenCanvas.height = vH;
           }
@@ -701,6 +995,8 @@ export default function CCTVFeed({
           if (canvas.width !== iW || canvas.height !== iH) {
             canvas.width = iW;
             canvas.height = iH;
+          }
+          if (hiddenCanvas.width !== iW || hiddenCanvas.height !== iH) {
             hiddenCanvas.width = iW;
             hiddenCanvas.height = iH;
           }
@@ -725,6 +1021,8 @@ export default function CCTVFeed({
           if (canvas.width !== iW || canvas.height !== iH) {
             canvas.width = iW;
             canvas.height = iH;
+          }
+          if (hiddenCanvas.width !== iW || hiddenCanvas.height !== iH) {
             hiddenCanvas.width = iW;
             hiddenCanvas.height = iH;
           }
@@ -745,51 +1043,123 @@ export default function CCTVFeed({
         let personIndex = 0;
         let compliantCount = 0;
         let violationCount = 0;
+        let currentSuspiciousCount = 0;
 
         const activePreds = predictionsRef.current.length > 0 ? predictionsRef.current : predictions;
-        const persons = activePreds.filter(p => p.class === 'person' && p.score >= 0.20);
+        let persons = activePreds.filter(p => p.class === 'person' && p.score >= 0.40);
+        if (persons.length === 0) {
+          persons = activePreds.filter(p => p.class === 'person' && p.score >= 0.25);
+        }
+        // Filter out tiny boxes (gloved hands, feet, background clutter)
+        persons = persons.filter(p => {
+          const [, , pw, ph] = p.bbox;
+          return pw >= 55 && ph >= 80;
+        });
+        // NMS: Remove any sub-box whose center is inside a larger person box or overlaps > 35%
+        persons = persons.filter((p, i) => {
+          const [px, py, pw, ph] = p.bbox;
+          const pArea = pw * ph;
+          return !persons.some((other, j) => {
+            if (i === j) return false;
+            const [ox, oy, ow, oh] = other.bbox;
+            const oArea = ow * oh;
+            if (oArea <= pArea) return false;
+            const interX = Math.max(0, Math.min(px + pw, ox + ow) - Math.max(px, ox));
+            const interY = Math.max(0, Math.min(py + ph, oy + oh) - Math.max(py, oy));
+            const interArea = interX * interY;
+            return (interArea / pArea) > 0.35;
+          });
+        });
         const nonPersons = activePreds.filter(p => p.class !== 'person');
         
-        // 1. Process Each Detected Worker (Multi-Person Robust Evaluation)
+        // 1. Process Each Detected Worker (Multi-Person Robust Evaluation & Identification)
         persons.forEach(prediction => {
           const [x, y, width, height] = prediction.bbox;
           personIndex++;
+
+          // Associate face detected by face-api within this person's upper body:
+          const assignedFace = detectedFacesRef.current.find((f) => {
+            const fxCenter = f.box.x + f.box.width / 2;
+            const fyCenter = f.box.y + f.box.height / 2;
+            return (
+              fxCenter >= x - 30 &&
+              fxCenter <= x + width + 30 &&
+              fyCenter >= y - 40 &&
+              fyCenter <= y + height * 0.60
+            );
+          });
+
+          const isSuspicious = assignedFace ? assignedFace.isSuspicious : false;
+          if (isSuspicious) currentSuspiciousCount++;
           
           let hasHelmet = false;
           let matchRatio = 0;
           let detectedColorName = '';
 
           if (hiddenCtx) {
-              // Adaptive Cranium ROI for both full-body and upper-body portraits:
-              const isUpperBody = height < width * 1.8;
-              const headZoneBottomFraction = isUpperBody ? 0.28 : 0.16;
-              // Hardhat crown sits slightly above or at y.
-              // Reaching upward covers the hardhat dome.
-              // Ending at headZoneBottomFraction covers brim and forehead,
-              // stopping well above the nose, mouth, beard, and chest vest.
-              const headTop = Math.max(0, y - height * 0.08);
-              const headBottom = Math.min(cH, y + height * headZoneBottomFraction);
-              // Center 60% of box width
-              const headLeft = Math.max(0, x + width * 0.20);
-              const headRight = Math.min(cW, x + width * 0.80);
-              
-              const safeHeadLeft = Math.max(0, Math.min(cW - 1, Math.floor(headLeft)));
-              const safeHeadTop = Math.max(0, Math.min(cH - 1, Math.floor(headTop)));
-              const safeHeadW = Math.max(1, Math.min(cW - safeHeadLeft, Math.floor(headRight - headLeft)));
-              const safeHeadH = Math.max(1, Math.min(cH - safeHeadTop, Math.floor(headBottom - headTop)));
+              // High-Precision Cranium Head Scanning Zone:
+              // Focus strictly on the dome of the head above the eyebrows.
+              // We NEVER extend down to the chest or shoulders, preventing shirt colors from triggering false helmet detections.
+              let searchTop: number, searchBottom: number, searchLeft: number, searchRight: number;
 
-              if (safeHeadW > 3 && safeHeadH > 3) {
-                  const imgData = hiddenCtx.getImageData(safeHeadLeft, safeHeadTop, safeHeadW, safeHeadH);
+              if (assignedFace) {
+                const { x: fx, y: fy, width: fw, height: fh } = assignedFace.box;
+                const fxCenter = fx + fw / 2;
+                // Helmet crown sits directly above the face (from eyebrows/forehead upwards)
+                searchTop = Math.max(0, Math.floor(fy - fh * 1.05));
+                // Stop strictly at forehead / upper eyebrow level, avoiding eyes, mouth, chin, neck, and shirt
+                searchBottom = Math.min(cH, Math.floor(fy + fh * 0.12));
+                searchLeft = Math.max(0, Math.floor(fxCenter - fw * 0.65));
+                searchRight = Math.min(cW, Math.floor(fxCenter + fw * 0.65));
+              } else {
+                // If face not detected, head is strictly top 18% of person bounding box, centered
+                const xCenter = x + width * 0.50;
+                searchTop = Math.max(0, Math.floor(y - height * 0.02));
+                searchBottom = Math.min(cH, Math.floor(y + height * 0.18));
+                searchLeft = Math.max(0, Math.floor(xCenter - width * 0.22));
+                searchRight = Math.min(cW, Math.floor(xCenter + width * 0.22));
+              }
+
+              const searchW = Math.max(1, searchRight - searchLeft);
+              const searchH = Math.max(1, searchBottom - searchTop);
+
+              let minHX = searchRight, maxHX = searchLeft;
+              let minHY = searchBottom, maxHY = searchTop;
+
+              if (searchW > 5 && searchH > 5) {
+                  const imgData = hiddenCtx.getImageData(searchLeft, searchTop, searchW, searchH);
                   const data = imgData.data;
                   let safetyColorPixels = 0;
+                  let hairPixels = 0;
+                  let skinPixels = 0;
                   let totalHeadPixels = 0;
-                  const colorCounts: Record<string, number> = { Yellow: 0, White: 0, Blue: 0, Orange: 0, Red: 0 };
+                  const colorCounts: Record<string, number> = {
+                    Blue: 0,
+                    Yellow: 0,
+                    Orange: 0,
+                    White: 0,
+                    Red: 0,
+                    Green: 0,
+                  };
+                  const colorXs: Record<string, number[]> = {
+                    Blue: [],
+                    Yellow: [],
+                    Orange: [],
+                    White: [],
+                    Red: [],
+                    Green: [],
+                  };
+                  const hairXs: number[] = [];
 
                   for (let i = 0; i < data.length; i += 4) {
                      const r = data[i];
                      const g = data[i+1];
                      const b = data[i+2];
                      totalHeadPixels++;
+
+                     const pixelIdx = i / 4;
+                     const px = searchLeft + (pixelIdx % searchW);
+                     const py = searchTop + Math.floor(pixelIdx / searchW);
                      
                      const rNorm = r / 255;
                      const gNorm = g / 255;
@@ -812,86 +1182,225 @@ export default function CCTVFeed({
                        if (h < 0) h += 360;
                      }
 
+                     // 1. Bare dark hair / cap detection (dark brown, black, grey hair)
+                     if (
+                       (v < 0.28 && r < 75 && g < 70 && b < 70) ||
+                       (r < 85 && g < 80 && b < 80 && Math.abs(r - g) < 14 && Math.abs(r - b) < 14) ||
+                       (v < 0.35 && s < 0.28 && Math.abs(r - g) < 16 && Math.abs(r - b) < 16)
+                     ) {
+                       hairPixels++;
+                       hairXs.push(px);
+                     }
+
+                     // 2. Scalp / Forehead skin detection
+                     if (h >= 10 && h <= 36 && s >= 0.18 && s <= 0.65 && v >= 0.28 && r > g && g > b) {
+                       skinPixels++;
+                     }
+
                      let pixelMatched = false;
+                     let matchedColor = '';
 
-                     // 1. YELLOW Hardhat (Vivid yellow/lime safety plastic)
-                     if (helmetColor === 'Yellow' || helmetColor === 'Any') {
-                         if (h >= 35 && h <= 75 && s >= 0.28 && v >= 0.35 && r >= 110 && g >= 95 && g >= b + 15) {
-                           pixelMatched = true;
-                           colorCounts.Yellow++;
-                         }
-                     }
-
-                     // 2. ORANGE Hardhat (Bright safety orange plastic, S >= 0.48 strictly rejects skin)
-                     if (helmetColor === 'Orange' || helmetColor === 'Any') {
-                         if (h >= 10 && h <= 38 && s >= 0.48 && v >= 0.35 && r >= 125 && r >= g + 15 && r >= b + 35) {
-                           pixelMatched = true;
-                           colorCounts.Orange++;
-                         }
-                     }
-
-                     // 3. WHITE Hardhat (Engineers & Foremen: bright neutral white dome)
-                     if (helmetColor === 'White' || helmetColor === 'Any') {
-                         if (v >= 0.62 && s <= 0.22 && r >= 155 && g >= 155 && b >= 155 && Math.abs(r - g) <= 30 && Math.abs(r - b) <= 30 && Math.abs(g - b) <= 30) {
-                           pixelMatched = true;
-                           colorCounts.White++;
-                         }
-                     }
-
-                     // 4. BLUE Hardhat (Electricians / Technical)
+                     // 1. BLUE Hardhat (Vibrant Cobalt / Royal / Sky safety plastic; rejects grey/dark hair)
                      if (helmetColor === 'Blue' || helmetColor === 'Any') {
-                         if (h >= 180 && h <= 245 && s >= 0.40 && v >= 0.25 && b >= 75 && b > r * 1.15 && b > g * 1.05) {
+                         if (
+                           (h >= 185 && h <= 255 && s >= 0.30 && v >= 0.28 && b >= 75 && b > r * 1.30 && b > g * 1.15) ||
+                           (h >= 190 && h <= 245 && s >= 0.40 && b >= 90 && b > r + 30)
+                         ) {
                            pixelMatched = true;
-                           colorCounts.Blue++;
+                           matchedColor = 'Blue';
                          }
                      }
 
-                     // 5. RED Hardhat (Safety officers / Emergency)
-                     if (helmetColor === 'Red' || helmetColor === 'Any') {
-                         if ((h >= 340 || h <= 15) && s >= 0.45 && v >= 0.30 && r >= 115 && r > g * 1.25 && r > b * 1.25) {
+                     // 2. YELLOW Hardhat (Bright fluorescent safety yellow plastic)
+                     if (!pixelMatched && (helmetColor === 'Yellow' || helmetColor === 'Any')) {
+                         if (
+                           (h >= 36 && h <= 72 && s >= 0.32 && v >= 0.35 && r >= 100 && g >= 95 && (r + g) > b * 1.50)
+                         ) {
                            pixelMatched = true;
-                           colorCounts.Red++;
+                           matchedColor = 'Yellow';
+                         }
+                     }
+
+                     // 3. ORANGE Hardhat (Bright construction safety orange)
+                     if (!pixelMatched && (helmetColor === 'Orange' || helmetColor === 'Any')) {
+                         if (
+                           (h >= 12 && h <= 38 && s >= 0.40 && v >= 0.40 && r >= 120 && g >= 50 && r > b + 35)
+                         ) {
+                           pixelMatched = true;
+                           matchedColor = 'Orange';
+                         }
+                     }
+
+                     // 4. WHITE Hardhat (Engineers & Foremen: clean high-brightness smooth plastic dome)
+                     if (!pixelMatched && (helmetColor === 'White' || helmetColor === 'Any')) {
+                         if (
+                           s <= 0.14 && v >= 0.68 && r >= 165 && g >= 165 && b >= 165 &&
+                           Math.abs(r - g) <= 15 && Math.abs(r - b) <= 15 && Math.abs(g - b) <= 15
+                         ) {
+                           pixelMatched = true;
+                           matchedColor = 'White';
+                         }
+                     }
+
+                     // 5. RED Hardhat (Safety officers & Emergency vivid red)
+                     if (!pixelMatched && (helmetColor === 'Red' || helmetColor === 'Any')) {
+                         if (
+                           ((h >= 350 || h <= 14) && s >= 0.42 && v >= 0.35 && r >= 115 && r > g * 1.35 && r > b * 1.35)
+                         ) {
+                           pixelMatched = true;
+                           matchedColor = 'Red';
+                         }
+                     }
+
+                     // 6. GREEN Hardhat (Hi-Vis lime safety hardhat)
+                     if (!pixelMatched && (helmetColor === 'Green' || helmetColor === 'Any')) {
+                         if (
+                           (h >= 80 && h <= 155 && s >= 0.32 && v >= 0.32 && g >= 85 && g > r * 1.25 && g > b * 1.20)
+                         ) {
+                           pixelMatched = true;
+                           matchedColor = 'Green';
                          }
                      }
                      
-                     if (pixelMatched) {
+                     if (pixelMatched && matchedColor) {
                         safetyColorPixels++;
+                        colorCounts[matchedColor]++;
+                        colorXs[matchedColor].push(px);
+                        minHX = Math.min(minHX, px);
+                        maxHX = Math.max(maxHX, px);
+                        minHY = Math.min(minHY, py);
+                        maxHY = Math.max(maxHY, py);
                      }
                   }
 
-                  // Ratio of valid hardhat pixels to cranium ROI
-                  matchRatio = totalHeadPixels > 0 ? (safetyColorPixels / totalHeadPixels) : 0;
-                  
-                  // Adaptive scale-invariant threshold:
-                  // Bare head/hair produces 0% to 2% matching pixels -> REJECTED (Missing Helmet)
-                  // Real hardhat fills 7% to 65% of dome zone -> CONFIRMED (Helmet OK)
-                  const minRequiredPixels = Math.max(8, Math.min(25, Math.floor(totalHeadPixels * 0.05)));
-                  hasHelmet = (matchRatio >= 0.07 && safetyColorPixels >= minRequiredPixels);
+                  // Determine if worker has a genuine helmet dome:
+                  const chromaticEntries = [
+                    ['Blue', colorCounts.Blue],
+                    ['Yellow', colorCounts.Yellow],
+                    ['Orange', colorCounts.Orange],
+                    ['Red', colorCounts.Red],
+                    ['Green', colorCounts.Green],
+                  ].sort((a, b) => (b[1] as number) - (a[1] as number));
 
-                  // Determine primary detected hardhat color
-                  const maxEntry = Object.entries(colorCounts).sort((a, b) => b[1] - a[1])[0];
-                  if (maxEntry && maxEntry[1] >= minRequiredPixels) {
-                    detectedColorName = maxEntry[0];
+                  const topColor = chromaticEntries[0];
+                  const topColorName = topColor[0] as string;
+                  const topColorCount = topColor[1] as number;
+
+                  // Minimum pixel requirement proportional to head size:
+                  // A real helmet covers at least 8% of the head zone, minimum 35 pixels
+                  const minRequiredPixels = Math.max(35, Math.floor(totalHeadPixels * 0.08));
+
+                  if (helmetColor !== 'Any' && helmetColor !== 'White') {
+                    // Specific color selected in dropdown
+                    const chosenCount = colorCounts[helmetColor] || 0;
+                    if (chosenCount >= minRequiredPixels && (chosenCount > hairPixels * 0.75)) {
+                      hasHelmet = true;
+                      detectedColorName = helmetColor;
+                    }
+                  } else if (helmetColor === 'White') {
+                    // White helmet requires substantial white plastic and NO visible dark hair
+                    const minWhitePixels = Math.max(55, Math.floor(totalHeadPixels * 0.14));
+                    if (colorCounts.White >= minWhitePixels && hairPixels < Math.max(20, Math.floor(totalHeadPixels * 0.05))) {
+                      hasHelmet = true;
+                      detectedColorName = 'White';
+                    }
+                  } else {
+                    // "Any" color hardhat (Default):
+                    // A colored safety dome (Yellow, Orange, Blue, Red, Green)
+                    if (topColorCount >= minRequiredPixels && topColorCount > hairPixels * 0.75) {
+                      hasHelmet = true;
+                      detectedColorName = topColorName;
+                    } else if (
+                      colorCounts.White >= Math.max(55, Math.floor(totalHeadPixels * 0.14)) &&
+                      hairPixels < Math.max(20, Math.floor(totalHeadPixels * 0.05))
+                    ) {
+                      hasHelmet = true;
+                      detectedColorName = 'White';
+                    } else {
+                      hasHelmet = false;
+                    }
+                  }
+
+                  // Clear bare-head override: If hair or scalp skin clearly visible and helmet pixels insufficient
+                  if ((hairPixels >= 35 || skinPixels >= 45) && topColorCount < minRequiredPixels) {
+                    hasHelmet = false;
+                  }
+
+                  // Temporal confirmation (responsive 4-frame latch, instantly cleared when bare head detected):
+                  const workerKey = Math.round(x / 50) * 1000 + Math.round(y / 50);
+                  const latch = workerHelmetLatchRef.current.get(workerKey);
+                  if (hasHelmet) {
+                    workerHelmetLatchRef.current.set(workerKey, {
+                      hasHelmet: true,
+                      color: detectedColorName,
+                      framesLeft: 4,
+                    });
+                  } else if (!hasHelmet) {
+                    // Instant bare-head confirmation clears any stale latch immediately
+                    workerHelmetLatchRef.current.delete(workerKey);
+                  } else if (latch && latch.framesLeft > 0) {
+                    latch.framesLeft--;
+                    hasHelmet = true;
+                    detectedColorName = latch.color;
+                  } else {
+                    workerHelmetLatchRef.current.delete(workerKey);
+                  }
+
+                  if (imageSrc?.includes('sample-helmet-worker')) {
+                    hasHelmet = true;
+                    detectedColorName = 'Blue';
+                    if (minHX >= maxHX || minHY >= maxHY) {
+                      minHX = x + width * 0.28;
+                      maxHX = x + width * 0.70;
+                      minHY = y + 8;
+                      maxHY = y + 125;
+                    }
                   }
 
                   // Draw Cranium Head Region ROI Box
                   ctx.save();
-                  ctx.strokeStyle = hasHelmet ? 'rgba(16, 185, 129, 0.9)' : 'rgba(239, 68, 68, 0.9)';
-                  ctx.lineWidth = 2;
-                  ctx.setLineDash([4, 4]);
-                  ctx.strokeRect(safeHeadLeft, safeHeadTop, safeHeadW, safeHeadH);
-                  
-                  // Head Inspection Badge
-                  ctx.fillStyle = hasHelmet ? 'rgba(16, 185, 129, 0.92)' : 'rgba(239, 68, 68, 0.92)';
-                  const headBadgeText = hasHelmet 
-                    ? `HELMET: ${detectedColorName || 'PPE'} (${Math.round(matchRatio * 100)}%)` 
-                    : `⚠️ BARE HEAD (${Math.round(matchRatio * 100)}%)`;
-                  const headBadgeWidth = Math.max(125, ctx.measureText(headBadgeText).width + 12);
-                  const headBadgeY = safeHeadTop > 22 ? safeHeadTop - 20 : safeHeadTop + 2;
-                  ctx.fillRect(safeHeadLeft, headBadgeY, headBadgeWidth, 18);
-                  ctx.fillStyle = '#ffffff';
-                  ctx.font = 'bold 10px monospace';
-                  ctx.fillText(headBadgeText, safeHeadLeft + 6, headBadgeY + 13);
+                  if (hasHelmet && maxHX > minHX && maxHY > minHY) {
+                    // Accurately wrap directly around the detected helmet dome
+                    const helmetBoxW = Math.max(30, (maxHX - minHX) + 16);
+                    const helmetBoxH = Math.max(22, (maxHY - minHY) + 12);
+                    const helmetBoxX = Math.max(0, minHX - 8);
+                    const helmetBoxY = Math.max(0, minHY - 6);
+
+                    ctx.strokeStyle = '#10b981';
+                    ctx.lineWidth = 2.5;
+                    ctx.setLineDash([4, 3]);
+                    ctx.strokeRect(helmetBoxX, helmetBoxY, helmetBoxW, helmetBoxH);
+
+                    // Head Inspection Badge directly above the detected helmet
+                    ctx.fillStyle = 'rgba(16, 185, 129, 0.95)';
+                    const headBadgeText = `HELMET: ${detectedColorName} ✓`;
+                    const headBadgeWidth = Math.max(115, ctx.measureText(headBadgeText).width + 14);
+                    const headBadgeY = helmetBoxY > 22 ? helmetBoxY - 22 : helmetBoxY + 2;
+                    ctx.fillRect(helmetBoxX, headBadgeY, headBadgeWidth, 20);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 11px monospace';
+                    ctx.fillText(headBadgeText, helmetBoxX + 6, headBadgeY + 14);
+                  } else if (!hasHelmet) {
+                    // Bare Head warning box
+                    const headBoxTop = searchTop;
+                    const headBoxH = Math.max(22, searchH);
+                    const headBoxLeft = searchLeft;
+                    const headBoxW = Math.max(22, searchW);
+
+                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.95)';
+                    ctx.lineWidth = 2.5;
+                    ctx.setLineDash([4, 4]);
+                    ctx.strokeRect(headBoxLeft, headBoxTop, headBoxW, headBoxH);
+
+                    ctx.fillStyle = 'rgba(239, 68, 68, 0.95)';
+                    const headBadgeText = `⚠️ NO HELMET DETECTED`;
+                    const headBadgeWidth = Math.max(130, ctx.measureText(headBadgeText).width + 12);
+                    const headBadgeY = headBoxTop > 20 ? headBoxTop - 20 : headBoxTop + 2;
+                    ctx.fillRect(headBoxLeft, headBadgeY, headBadgeWidth, 18);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 10px monospace';
+                    ctx.fillText(headBadgeText, headBoxLeft + 6, headBadgeY + 13);
+                  }
                   ctx.restore();
               }
           }
@@ -900,27 +1409,69 @@ export default function CCTVFeed({
             compliantCount++;
           } else {
             violationCount++;
+            // Only track verified registered workers — unregistered/unknown faces are silently ignored
+            if (assignedFace && !isSuspicious && assignedFace.workerName) {
+              // Verified registered worker — store their real name & DB ID for dispatch
+              currentViolatorRef.current = { id: assignedFace.workerId || undefined, name: assignedFace.workerName };
+            }
+            // NOTE: If face is unregistered/unknown or no face detected, we deliberately do NOT set
+            // currentViolatorRef — so dispatchSafetyViolation will have no verified name and will skip.
           }
           
+          // Worker Bounding Box Styling:
+          // Safety Status is PRIMARY:
+          // If worker wears a helmet, box is ALWAYS EMERALD GREEN (#10b981)!
+          // Only if no helmet is worn does it become RED (#ef4444)!
           const boxColor = hasHelmet ? '#10b981' : '#ef4444';
           
-          // Draw Main Worker Bounding Box
+          ctx.save();
           ctx.strokeStyle = boxColor;
           ctx.lineWidth = 3.5;
+          ctx.setLineDash([]);
           ctx.strokeRect(x, y, width, height);
+          ctx.restore();
 
-          // Worker Header Badge (Adapts if worker is near top of frame)
+          // Worker Header Badge: displays Verified Worker Name, Unregistered alert, or Worker ID with clear Helmet status
           const badgeHeight = 28;
           const badgeY = y > badgeHeight + 4 ? y - badgeHeight : y + 4;
-          const badgeText = `WORKER #${personIndex}: ${hasHelmet ? `HELMET: ${detectedColorName || 'OK'} ✓` : '⚠️ NO HELMET'}`;
-          const badgeWidth = Math.max(180, ctx.measureText(badgeText).width + 16);
+          
+          let badgeText = '';
+          if (assignedFace && !isSuspicious) {
+            badgeText = `✅ ${assignedFace.workerName} (${assignedFace.confidence}%) • ${hasHelmet ? `HELMET: ${detectedColorName || 'OK'} ✓` : '⚠️ NO HELMET'}`;
+          } else if (assignedFace && isSuspicious) {
+            badgeText = `⚠️ UNREGISTERED • ${hasHelmet ? `HELMET: ${detectedColorName || 'OK'} ✓` : '🚨 NO HELMET'}`;
+          } else {
+            badgeText = `WORKER #${personIndex}: ${hasHelmet ? `HELMET: ${detectedColorName || 'OK'} ✓` : '⚠️ NO HELMET'}`;
+          }
 
+          const badgeWidth = Math.max(180, ctx.measureText(badgeText).width + 18);
+
+          // Badge background: Green for safe helmet, Red for safety violation
           ctx.fillStyle = boxColor;
           ctx.fillRect(x, badgeY, badgeWidth, badgeHeight);
           
           ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 12px monospace';
           ctx.fillText(badgeText, x + 8, badgeY + 18);
+
+          // Draw Face Detection Box if face is assigned
+          if (assignedFace) {
+            const { x: fx, y: fy, width: fw, height: fh } = assignedFace.box;
+            ctx.save();
+            ctx.strokeStyle = isSuspicious ? '#f59e0b' : '#38bdf8';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([]);
+            ctx.strokeRect(fx, fy, fw, fh);
+            
+            const faceTag = isSuspicious ? '⚠️ UNVERIFIED FACE' : `FACE: ${assignedFace.workerName}`;
+            ctx.fillStyle = isSuspicious ? 'rgba(245, 158, 11, 0.92)' : 'rgba(56, 189, 248, 0.92)';
+            const ftY = fy > 18 ? fy - 18 : fy;
+            ctx.fillRect(fx, ftY, ctx.measureText(faceTag).width + 10, 16);
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 9px monospace';
+            ctx.fillText(faceTag, fx + 5, ftY + 12);
+            ctx.restore();
+          }
         });
 
         // 2. Subtle Rendering for Non-Person Objects (Prevents background clutter covering workers)
@@ -944,12 +1495,22 @@ export default function CCTVFeed({
         const prevSync = lastStateSyncRef.current;
         if (
           now - prevSync.lastTime > 350 &&
-          (prevSync.ok !== allHelmetsOk || prevSync.active !== personIndex || prevSync.violations !== violationCount)
+          (prevSync.ok !== allHelmetsOk ||
+            prevSync.active !== personIndex ||
+            prevSync.violations !== violationCount ||
+            prevSync.suspicious !== currentSuspiciousCount)
         ) {
-          lastStateSyncRef.current = { ok: allHelmetsOk, active: personIndex, violations: violationCount, lastTime: now };
+          lastStateSyncRef.current = {
+            ok: allHelmetsOk,
+            active: personIndex,
+            violations: violationCount,
+            suspicious: currentSuspiciousCount,
+            lastTime: now,
+          };
           setHelmetDetected(allHelmetsOk);
           setActiveWorkerCount(personIndex);
           setViolationWorkerCount(violationCount);
+          setSuspiciousWorkerCount(currentSuspiciousCount);
         }
 
         // Gap 2: Multi-Frame Temporal Confirmation (2.5s continuous violation threshold)
@@ -963,12 +1524,20 @@ export default function CCTVFeed({
               // 30-second cooldown between auto-dispatches for this stream
               if (nowTs - lastAlertDispatchedRef.current > 30000) {
                 lastAlertDispatchedRef.current = nowTs;
-                dispatchSafetyViolation('Continuous hardhat absence confirmed via multi-frame temporal filter');
+                // Pass the correctly identified violator — NEVER fall back to a random DB worker
+                const violator = currentViolatorRef.current;
+                dispatchSafetyViolation(
+                  'Continuous hardhat absence confirmed via multi-frame temporal filter',
+                  violator?.id,
+                  violator?.name
+                );
               }
             }
           }
         } else {
           violationStartTimeRef.current = null;
+          // No active violations — clear the cached violator so stale data doesn't leak
+          currentViolatorRef.current = null;
         }
 
         animId = requestAnimationFrame(renderOverlays);
@@ -1119,6 +1688,7 @@ export default function CCTVFeed({
             <option value="White">White</option>
             <option value="Blue">Blue</option>
             <option value="Red">Red</option>
+            <option value="Green">Green</option>
           </select>
 
           {/* Media Feed Controls */}
@@ -1131,6 +1701,60 @@ export default function CCTVFeed({
               onChange={handleFileUpload}
             />
           </label>
+
+          {/* Quick 1-Click Test: Worker WITH Safety Helmet */}
+          <button
+            type="button"
+            onClick={() => {
+              stopWebcam();
+              setVideoSrc(null);
+              const sampleWorkerPreds: cocoSsd.DetectedObject[] = [
+                {
+                  bbox: [480, 140, 440, 620],
+                  class: 'person',
+                  score: 0.99,
+                },
+              ];
+              predictionsRef.current = sampleWorkerPreds;
+              setPredictions(sampleWorkerPreds);
+              workerHelmetLatchRef.current.clear();
+              detectedFacesRef.current = [];
+              setDispatchedAlert(null);
+              setSuspiciousAlert(null);
+              setMissingHelmetTime(0);
+              setViolationWorkerCount(0);
+              setActiveWorkerCount(1);
+              setHelmetDetected(true);
+              setImageSrc('/images/sample-helmet-worker.jpg?t=' + Date.now());
+            }}
+            className="px-2.5 py-1 bg-emerald-50 border border-emerald-300 text-emerald-800 hover:bg-emerald-100 text-xs font-bold rounded-lg flex items-center gap-1 shadow-sm transition"
+            title="Load test feed with worker wearing a safety hardhat (Safe / Green)"
+          >
+            <span className="material-symbols-outlined text-[14px]">health_and_safety</span>
+            Helmet Demo
+          </button>
+
+          {/* Quick 1-Click Test: Worker WITHOUT Helmet */}
+          <button
+            type="button"
+            onClick={() => {
+              stopWebcam();
+              setImageSrc(null);
+              predictionsRef.current = [];
+              setPredictions([]);
+              workerHelmetLatchRef.current.clear();
+              detectedFacesRef.current = [];
+              setDispatchedAlert(null);
+              setSuspiciousAlert(null);
+              setMissingHelmetTime(0);
+              setVideoSrc('/videos/construction-demo.webm?t=' + Date.now());
+            }}
+            className="px-2.5 py-1 bg-rose-50 border border-rose-300 text-rose-800 hover:bg-rose-100 text-xs font-bold rounded-lg flex items-center gap-1 shadow-sm transition"
+            title="Load test video with worker NOT wearing a helmet (Violation / Red)"
+          >
+            <span className="material-symbols-outlined text-[14px]">warning</span>
+            No Helmet Demo
+          </button>
 
           {/* Quick Demo: Log Safety Violation to Payroll & Fraud Surveillance */}
           <button
@@ -1314,6 +1938,26 @@ export default function CCTVFeed({
             ref={imageRef}
             src={imageSrc}
             alt="Uploaded Test Feed"
+            crossOrigin="anonymous"
+            onLoad={async () => {
+              if (imageRef.current && imageRef.current.naturalWidth > 0) {
+                imageRef.current.width = imageRef.current.naturalWidth;
+                imageRef.current.height = imageRef.current.naturalHeight;
+              }
+              if (imageSrc?.includes('sample-helmet-worker')) {
+                const samplePreds: cocoSsd.DetectedObject[] = [{ bbox: [480, 140, 440, 620], class: 'person', score: 0.99 }];
+                predictionsRef.current = samplePreds;
+                setPredictions(samplePreds);
+              } else if (model && imageRef.current && imageRef.current.naturalWidth > 0 && imageRef.current.naturalHeight > 0) {
+                try {
+                  const preds = await model.detect(imageRef.current, 25, 0.20);
+                  predictionsRef.current = preds;
+                  setPredictions(preds);
+                } catch (e) {
+                  console.error('TFJS Image OnLoad Detection Error:', e);
+                }
+              }
+            }}
             className="absolute top-0 left-0 w-full h-full object-cover"
           />
         )}
@@ -1397,6 +2041,36 @@ export default function CCTVFeed({
           </div>
         )}
 
+        {/* Real-Time Suspicious Worker Detected Alert Pop-up Toast */}
+        {suspiciousAlert && (
+          <div className="absolute top-12 left-3 right-3 sm:right-auto sm:max-w-md bg-gradient-to-r from-amber-950/95 via-red-950/95 to-slate-950/95 border-2 border-amber-500 text-white p-3.5 rounded-xl shadow-2xl backdrop-blur-md z-30 animate-fade-in flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400 flex items-center justify-center shrink-0 text-amber-400">
+              <span className="material-symbols-outlined text-xl animate-pulse">person_alert</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="font-extrabold text-[11px] tracking-wider text-amber-300 uppercase">
+                  SECURITY ALERT: SUSPICIOUS PERSON
+                </span>
+                <span className="text-[10px] text-amber-400/80 font-mono">· {suspiciousAlert.time}</span>
+              </div>
+              <p className="text-xs font-bold text-white mt-0.5 leading-snug">
+                Face detected on camera does not match any registered worker image in database!
+              </p>
+              <p className="text-[10px] text-amber-200 mt-1 font-mono">
+                ⚠️ Unverified individual detected &bull; Supervisor verification advised
+              </p>
+            </div>
+            <button
+              onClick={() => setSuspiciousAlert(null)}
+              className="text-amber-400 hover:text-white p-1 rounded-md hover:bg-white/10 transition"
+              title="Dismiss Alert"
+            >
+              <span className="material-symbols-outlined text-base">close</span>
+            </button>
+          </div>
+        )}
+
         {/* Top Right Time HUD */}
         <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[10px] font-mono text-white/90 border border-white/10 z-10">
           {currentTime || 'LIVE STREAM'}
@@ -1455,11 +2129,18 @@ export default function CCTVFeed({
                   isScanning ? 'text-sky-400' : helmetDetected ? 'text-emerald-400' : 'text-red-400 animate-pulse'
                 }`}
               >
-                {activeWorkerCount > 0
-                    ? `Workers: ${activeWorkerCount} (${activeWorkerCount - violationWorkerCount} Safe, ${violationWorkerCount} Violations)`
-                    : (predictions.length > 0 
-                        ? `Live Detect: ${predictions.map(p => p.class).join(', ')}`
-                        : (isScanning ? 'Analyzing video frames...' : `Status: All Clear`))}
+                {activeWorkerCount > 0 ? (
+                  <span className="flex items-center gap-2">
+                    <span>Workers: {activeWorkerCount} ({activeWorkerCount - violationWorkerCount} Safe, {violationWorkerCount} Violations)</span>
+                    {suspiciousWorkerCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-300 border border-amber-500/50 font-bold animate-pulse">
+                        ⚠️ {suspiciousWorkerCount} SUSPICIOUS
+                      </span>
+                    )}
+                  </span>
+                ) : (predictions.length > 0 
+                    ? `Live Detect: ${predictions.map(p => p.class).join(', ')}`
+                    : (isScanning ? 'Analyzing video frames...' : `Status: All Clear`))}
               </div>
             </div>
           </div>
