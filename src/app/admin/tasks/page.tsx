@@ -29,6 +29,8 @@ export default function TasksPage() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [assignedWorkerId, setAssignedWorkerId] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,23 +58,50 @@ export default function TasksPage() {
 
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !date || !selectedProject) return;
+    setFormError(null);
 
+    if (!selectedProject) {
+      setFormError('Please select an active project.');
+      return;
+    }
+    const cleanTitle = title.trim();
+    if (!cleanTitle || cleanTitle.length < 3) {
+      setFormError('Task title must be at least 3 characters long.');
+      return;
+    }
+    if (!date) {
+      setFormError('Please select a scheduled date.');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description, date, assignedWorkerId, projectId: selectedProject.id }),
+        body: JSON.stringify({
+          title: cleanTitle,
+          description: description.trim() || null,
+          date,
+          assignedWorkerId: assignedWorkerId || null,
+          projectId: selectedProject.id
+        }),
       });
+      const data = await res.json();
       if (res.ok) {
         setTitle('');
         setDescription('');
         setAssignedWorkerId('');
+        setFormError(null);
         setShowAddModal(false);
         fetchTasks();
+      } else {
+        setFormError(data.error || 'Failed to create task.');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      setFormError('Network error while creating task.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -195,12 +224,20 @@ export default function TasksPage() {
             <div className="flex justify-between items-center border-b border-outline-variant/30 pb-3">
               <h3 className="text-base font-bold text-primary">Create Daily Task</h3>
               <span
-                onClick={() => setShowAddModal(false)}
+                onClick={() => { setShowAddModal(false); setFormError(null); }}
                 className="material-symbols-outlined cursor-pointer text-on-surface-variant hover:text-primary"
               >
                 close
               </span>
             </div>
+
+            {formError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-bold flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px]">error</span>
+                <span>{formError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleAddTask} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">
@@ -261,16 +298,17 @@ export default function TasksPage() {
               <div className="flex gap-3 justify-end pt-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => { setShowAddModal(false); setFormError(null); }}
                   className="px-4 py-2 border border-outline-variant text-xs font-bold uppercase tracking-wider rounded-lg"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-primary text-on-primary text-xs font-bold uppercase tracking-wider rounded-lg shadow"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-primary text-on-primary text-xs font-bold uppercase tracking-wider rounded-lg shadow disabled:opacity-50"
                 >
-                  Save Task
+                  {isSubmitting ? 'Saving Task...' : 'Save Task'}
                 </button>
               </div>
             </form>

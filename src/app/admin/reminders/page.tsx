@@ -18,10 +18,6 @@ export default function RemindersPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchReminders();
-  }, []);
-
   const fetchReminders = () => {
     setLoading(true);
     fetch('/api/reminders')
@@ -35,6 +31,10 @@ export default function RemindersPage() {
         setLoading(false);
       });
   };
+
+  useEffect(() => {
+    fetchReminders();
+  }, []);
 
   const handleAddReminder = async (e: React.FormEvent) => {
     e.preventDefault();

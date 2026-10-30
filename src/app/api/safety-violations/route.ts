@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { broadcastAlert } from '@/lib/sse-broadcaster';
 
 export async function POST(req: Request) {
   try {
@@ -56,12 +57,14 @@ export async function POST(req: Request) {
             id: true,
             name: true,
             phone: true,
-            wageRate: true,
             project: { select: { name: true, code: true } },
           },
         },
       },
     });
+
+    // Broadcast to SSE clients
+    broadcastAlert({ type: 'alert', ...alert });
 
     return NextResponse.json({
       success: true,

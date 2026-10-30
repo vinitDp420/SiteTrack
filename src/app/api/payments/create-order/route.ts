@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    let totalAmount = amount;
+    const totalAmount = amount;
     let description = customDesc || 'SiteTrack Payment Disbursement';
     let workerName = 'Multiple Workers';
 

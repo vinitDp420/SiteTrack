@@ -214,23 +214,86 @@ export default function WorkersPage() {
 
   const handleSave = async () => {
     setFormError(null);
-    if (!name.trim()) { setFormError('Full name is required.'); return; }
-    if (!phone.trim()) { setFormError('Phone number is required.'); return; }
-    if (!wageRate) { setFormError('Daily wage rate is required.'); return; }
-    if (!projectId) { setFormError('Please select a project.'); return; }
+
+    // 1. Name validation
+    const cleanName = name.trim();
+    if (!cleanName) { setFormError('Full name is required.'); return; }
+    if (cleanName.length < 2) { setFormError('Full name must be at least 2 characters long.'); return; }
+    if (!/^[a-zA-Z\s.'-]+$/.test(cleanName)) { setFormError('Full name can only contain letters, spaces, dots and hyphens.'); return; }
+
+    // 2. Phone validation (10-digit mobile number)
+    const cleanPhone = phone.trim().replace(/[\s-]/g, '');
+    if (!cleanPhone) { setFormError('Phone number is required.'); return; }
+    const phoneRegex = /^(?:\+91|0)?[6-9]\d{9}$/;
+    if (!phoneRegex.test(cleanPhone)) {
+      setFormError('Please enter a valid 10-digit Indian mobile number (e.g., 9876543210).');
+      return;
+    }
+
+    // 3. Daily wage rate validation
+    const wage = parseFloat(wageRate);
+    if (isNaN(wage) || wage <= 0) {
+      setFormError('Please enter a valid daily wage rate greater than 0.');
+      return;
+    }
+    if (wage > 100000) {
+      setFormError('Daily wage rate cannot exceed ₹1,00,000.');
+      return;
+    }
+
+    // 4. Project validation
+    if (!projectId) { setFormError('Please select a project for this worker.'); return; }
+
+    // 5. Optional Bank / Financial details validation
+    if (ifscCode.trim()) {
+      const cleanIfsc = ifscCode.trim().toUpperCase();
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(cleanIfsc)) {
+        setFormError('Please enter a valid 11-character Indian IFSC code (e.g. SBIN0001234).');
+        return;
+      }
+    }
+
+    if (bankAccountNumber.trim()) {
+      const cleanAcc = bankAccountNumber.trim();
+      if (!/^\d{9,18}$/.test(cleanAcc)) {
+        setFormError('Bank account number must be between 9 and 18 numeric digits.');
+        return;
+      }
+    }
+
+    if (upiId.trim()) {
+      if (!/^[\w.-]+@[\w.-]+$/.test(upiId.trim())) {
+        setFormError('Please enter a valid UPI ID (e.g. worker@okhdfcbank).');
+        return;
+      }
+    }
+
+    // 6. Optional Login Credentials validation
+    if (loginEmail.trim()) {
+      const cleanEmail = loginEmail.trim();
+      if (cleanEmail.includes('@') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        setFormError('Please enter a valid email address for worker login.');
+        return;
+      }
+    }
+
+    if (password && password.trim().length < 6) {
+      setFormError('Worker login password must be at least 6 characters long.');
+      return;
+    }
 
     setFormSaving(true);
     const payload = {
-      name,
-      phone,
-      wageRate: parseFloat(wageRate),
+      name: cleanName,
+      phone: cleanPhone.startsWith('+91') ? cleanPhone.slice(3) : cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone,
+      wageRate: wage,
       projectId,
       status,
       facePhoto,
-      bankAccountName,
-      bankAccountNumber,
-      ifscCode,
-      upiId,
+      bankAccountName: bankAccountName.trim() || undefined,
+      bankAccountNumber: bankAccountNumber.trim() || undefined,
+      ifscCode: ifscCode.trim().toUpperCase() || undefined,
+      upiId: upiId.trim() || undefined,
       paymentType,
       loginEmail: loginEmail.trim(),
       password: password ? password.trim() : undefined,

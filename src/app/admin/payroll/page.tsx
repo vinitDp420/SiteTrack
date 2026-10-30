@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useProject } from '@/lib/project-context';
 
@@ -35,7 +35,7 @@ export default function PayrollPage() {
   const [filterTab, setFilterTab] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'INFRACTIONS'>('ALL');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const fetchPayroll = async () => {
+  const fetchPayroll = useCallback(async () => {
     setIsLoading(true);
     try {
       const url = selectedProject 
@@ -51,7 +51,7 @@ export default function PayrollPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedProject]);
 
   useEffect(() => {
     fetchPayroll();
@@ -180,39 +180,16 @@ export default function PayrollPage() {
         </div>
       </div>
 
-      {/* Gap 1 Equation Banner */}
-      <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-5 rounded-2xl shadow-md border border-blue-700">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <span className="inline-block px-2 py-0.5 bg-blue-500/30 rounded text-[10px] font-mono font-bold uppercase tracking-wider text-blue-200 mb-1">
-              Deterministic Mathematical Formula (Paper Subsystem C)
-            </span>
-            <div className="font-mono text-lg md:text-xl font-bold tracking-wide text-cyan-300">
-              W_net = &Delta;t_shift &times; R_hourly &times; &Phi;_compliance &minus; D_statutory
-            </div>
-            <p className="text-xs text-blue-200/80 mt-1">
-              Field AI PPE detections dynamically adjust <span className="text-cyan-200 font-bold">&Phi;_compliance</span> before final approval, eliminating manual disputes.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 bg-white/10 px-4 py-2 rounded-xl backdrop-blur-sm border border-white/10">
-            <div>
-              <p className="text-[10px] uppercase text-blue-200 font-bold">Total Safety Infractions</p>
-              <p className="text-2xl font-black text-amber-300">{totalViolations}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-primary to-[#1a3a6e] text-white p-5 rounded-2xl shadow-lg">
           <p className="text-xs font-bold uppercase tracking-widest opacity-80">Gross Base Pay</p>
           <h3 className="text-3xl font-black mt-2">{INR(totalGross)}</h3>
-          <p className="text-[11px] opacity-75 mt-1">&Delta;t_shift &times; R_hourly</p>
+          <p className="text-[11px] opacity-75 mt-1">Base wages before deductions</p>
         </div>
 
         <div className="bg-emerald-50 border border-emerald-200 p-5 rounded-2xl">
-          <p className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Net Wage (&Phi;_comp Adjusted)</p>
+          <p className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Net Payable Wage</p>
           <h3 className="text-3xl font-black mt-2 text-emerald-700">{INR(totalNet)}</h3>
           <p className="text-[11px] text-emerald-600 mt-1">Payable after deductions</p>
         </div>
@@ -226,7 +203,7 @@ export default function PayrollPage() {
         </div>
 
         <div className="bg-slate-50 border border-slate-200 p-5 rounded-2xl">
-          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Statutory D_stat (5%)</p>
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Statutory Deductions (5%)</p>
           <h3 className="text-3xl font-black mt-2 text-slate-800">{INR(totalStatutory)}</h3>
           <p className="text-[11px] text-slate-500 mt-1">Mandatory ESIC & PF contributions</p>
         </div>
@@ -273,8 +250,8 @@ export default function PayrollPage() {
           <div className="col-span-1">Rate</div>
           <div className="col-span-1">Hours</div>
           <div className="col-span-1">Gross</div>
-          <div className="col-span-2">PPE & &Phi;_comp</div>
-          <div className="col-span-1">D_stat (5%)</div>
+          <div className="col-span-2">Safety & Compliance</div>
+          <div className="col-span-1">Statutory (5%)</div>
           <div className="col-span-1">Net Pay</div>
           <div className="col-span-2 text-right">Approval Status</div>
         </div>
@@ -316,7 +293,7 @@ export default function PayrollPage() {
                 <div className="col-span-2">
                   <div className="flex items-center gap-1.5">
                     <span className={`font-mono text-xs font-bold ${pay.phiCompliance < 1 ? 'text-amber-700' : 'text-emerald-700'}`}>
-                      &Phi; = {(pay.phiCompliance * 100).toFixed(0)}%
+                      Compliance: {(pay.phiCompliance * 100).toFixed(0)}%
                     </span>
                     {pay.ppeViolations > 0 && (
                       <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-bold">

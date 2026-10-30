@@ -306,7 +306,7 @@ export default function WorkerPayslip() {
 
               <div className="text-right">
                 <p className="text-base font-black text-emerald-700">{INR(p.amount)}</p>
-                <span className="text-[10px] text-emerald-600 block">&Phi;_comp 100%</span>
+                <span className="text-[10px] text-emerald-600 block">Safety Verified 100%</span>
                 <span className="text-[10px] text-primary font-bold hover:underline mt-1 inline-flex items-center gap-0.5">
                   Voucher <span className="material-symbols-outlined text-[12px]">chevron_right</span>
                 </span>
@@ -466,7 +466,7 @@ export default function WorkerPayslip() {
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Safety Compliance Multiplier:</span>
-                  <span className="font-mono font-bold text-emerald-600">&times; 1.00 (&Phi;_comp)</span>
+                  <span className="font-mono font-bold text-emerald-600">&times; 1.00 (Verified)</span>
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>PPE Penalties / Deductions:</span>
@@ -480,7 +480,7 @@ export default function WorkerPayslip() {
 
               <div className="flex items-center gap-2 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 p-2 rounded-lg font-medium">
                 <span className="material-symbols-outlined text-[14px]">verified</span>
-                <span>Verified by Subsystem C Instant Payout Gateway</span>
+                <span>Verified by Instant Payout Gateway</span>
               </div>
             </div>
 

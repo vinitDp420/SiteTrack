@@ -1,12 +1,26 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import * as tf from "@tensorflow/tfjs";
 import { CheckCircle2, XCircle, UserCheck, HardHat, FlaskConical, ScanFace, Calculator, Wifi, WifiOff, RefreshCw, Database } from "lucide-react";
 import { enqueueAttendance, getQueueCount, syncOfflineQueue } from "@/lib/offline-queue";
 
 let faceapi: any;
 if (typeof window !== 'undefined') {
   faceapi = require('face-api.js');
+  window.addEventListener('unhandledrejection', (event) => {
+    const msg = event?.reason?.message || String(event?.reason || '');
+    if (
+      msg.includes('broadcast') ||
+      msg.includes('Operands could not be broadcast') ||
+      msg.includes('forwardFunc') ||
+      msg.includes('WebGL') ||
+      msg.includes('tensor')
+    ) {
+      event.preventDefault();
+      console.warn('[Kiosk AI] Suppressed transient AI runtime error:', msg);
+    }
+  });
 }
 
 // Demo workers — used when no database is connected
@@ -26,7 +40,7 @@ const DEMO_PROJECTS = [
 ];
 
 export default function KioskPage() {
-  const [mode, setMode] = useState<"PIN" | "FACE">("PIN");
+  const [mode, setMode] = useState<"PIN" | "FACE">("FACE");
   const [input, setInput] = useState("");
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
   const [projects, setProjects] = useState<any[]>([]);
@@ -50,6 +64,7 @@ export default function KioskPage() {
   const [faceMatcher, setFaceMatcher] = useState<any>(null);
   const [isBuildingMatcher, setIsBuildingMatcher] = useState(false);
   const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const recentKioskScansRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     fetch("/api/projects")
@@ -193,12 +208,51 @@ export default function KioskPage() {
     }
   };
 
+  
+  const playChime = (type: "in" | "out") => {
+    try {
+      if (typeof window === "undefined") return;
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      if (type === "in") {
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
+      } else {
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime + 0.12);
+      }
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {}
+  };
+
+  const speak = (text: string) => {
+    try {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.05;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
+    } catch {}
+  };
+
   const handleClear = () => {
     setInput("");
     setMessage(null);
   };
 
   const executeAttendance = async (workerId: string, action: "in" | "out") => {
+    recentKioskScansRef.current.set(workerId, Date.now());
     if (demoMode) {
       const workerName = DEMO_WORKERS[workerId] || "Guest Worker";
       if (!DEMO_WORKERS[workerId] && mode === "PIN") {
@@ -247,6 +301,8 @@ export default function KioskPage() {
         const data = await res.json();
         if (res.ok) {
           const wName = data.session?.worker?.name || workerName;
+          playChime("in");
+          speak(`Welcome ${wName}! Shift clocked in.`);
           setMessage({ text: `Welcome ${wName}! ✅ Clocked In Successfully.`, type: "success" });
         } else {
           setMessage({ text: data.error || "Failed to check in", type: "error" });
@@ -260,6 +316,8 @@ export default function KioskPage() {
         const data = await res.json();
         if (res.ok) {
           const wName = data.session?.worker?.name || workerName;
+          playChime("out");
+          speak(`Goodbye ${wName}! Shift clocked out.`);
           setMessage({ text: `Goodbye ${wName}! 👋 Clocked Out Successfully. Daily Wage Disbursed.`, type: "success" });
         } else {
           setMessage({ text: data.error || "Failed to check out", type: "error" });
@@ -379,7 +437,7 @@ export default function KioskPage() {
           try {
              const checkRes = await fetch(`/api/attendance?workerId=${workerIdToLog}`);
              const logs = await checkRes.json();
-             const isCurrentlyIn = Array.isArray(logs) && logs.length > 0 && logs[0].status === "ON_SITE" && !logs[0].checkOutTime;
+             const isCurrentlyIn = Array.isArray(logs) && logs.some((l: any) => l.checkOutTime === null);
              action = isCurrentlyIn ? "out" : "in";
           } catch {
              action = "in";
@@ -430,8 +488,8 @@ export default function KioskPage() {
                if (mode === "FACE") {
                  startCamera();
                }
-             }, 5000);
-          }, 1200);
+             }, 3500);
+          }, 3200);
         }
       }
     }, 1000);

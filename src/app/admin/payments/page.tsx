@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Script from 'next/script';
 import { useProject } from '@/lib/project-context';
 
@@ -125,7 +125,7 @@ export default function PaymentsPage() {
     setTimeout(() => setToast(null), 5000);
   };
 
-  const fetchPayments = async () => {
+  const fetchPayments = useCallback(async () => {
     if (!selectedProject) return;
     setLoading(true);
     try {
@@ -139,7 +139,7 @@ export default function PaymentsPage() {
       console.error(e);
     }
     setLoading(false);
-  };
+  }, [selectedProject]);
 
   useEffect(() => {
     if (selectedProject) fetchPayments();

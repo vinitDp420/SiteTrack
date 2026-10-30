@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { useProject } from '@/lib/project-context';
 import {
   ShieldAlert,
@@ -172,7 +172,7 @@ export default function FraudAlertsPage() {
   };
 
   // Fetch alerts from API
-  const fetchAlerts = async (silent = false) => {
+  const fetchAlerts = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const pid = selectedProject ? selectedProject.id : 'all';
@@ -200,7 +200,7 @@ export default function FraudAlertsPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  };
+  }, [selectedProject, selectedAlertId, showToast, playAlertSound]);
 
   useEffect(() => {
     fetchAlerts();
@@ -209,7 +209,7 @@ export default function FraudAlertsPage() {
       fetchAlerts(true);
     }, 8000);
     return () => clearInterval(interval);
-  }, [selectedProject]);
+  }, [selectedProject, fetchAlerts]);
 
   // Load available workers for simulation modal
   useEffect(() => {

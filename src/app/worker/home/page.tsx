@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
+import * as tf from '@tensorflow/tfjs';
 
 let faceapi: any;
 if (typeof window !== 'undefined') {
@@ -65,6 +66,19 @@ export default function WorkerHome() {
   const isExecutingRef = useRef<boolean>(false);
 
   // Play pleasant audio chime
+  
+  const speakFeedback = (text: string) => {
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.05;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
+    } catch {}
+  };
+
   const playSuccessChime = () => {
     try {
       if (typeof window === 'undefined') return;

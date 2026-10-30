@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "postinstall": "node -e \"const fs = require('fs'); const p = './node_modules/face-api.js/node_modules/@tensorflow'; if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });\""
   },
   "dependencies": {
     "@next-auth/prisma-adapter": "^1.0.7",
@@ -23,21 +26,28 @@
     "next-auth": "^4.24.8",
     "peerjs": "^1.5.5",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "yamljs": "^0.3.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
+    "@types/jest": "^29.5.12",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/swagger-ui-express": "^4.1.6",
     "eslint": "^9",
     "eslint-config-next": "^16.4.3",
+    "jest": "^29.7.0",
     "prisma": "^5.20.0",
     "tailwindcss": "^4",
+    "ts-jest": "^29.2.5",
     "typescript": "^5"
   },
   "overrides": {
-    "node-fetch": "^2.6.12"
+    "node-fetch": "^2.6.12",
+    "@tensorflow/tfjs-core": "^4.22.0"
   }
 }

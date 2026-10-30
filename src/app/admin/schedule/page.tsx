@@ -22,10 +22,6 @@ export default function SchedulePage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (selectedProject) fetchMilestones();
-  }, [selectedProject]);
-
   const fetchMilestones = () => {
     if (!selectedProject) return;
     setLoading(true);
@@ -37,6 +33,10 @@ export default function SchedulePage() {
       })
       .catch(() => setLoading(false));
   };
+
+  useEffect(() => {
+    if (selectedProject) fetchMilestones();
+  }, [selectedProject]);
 
   const handleAddMilestone = async (e: React.FormEvent) => {
     e.preventDefault();

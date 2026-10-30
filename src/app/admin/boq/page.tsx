@@ -22,11 +22,9 @@ export default function BOQPage() {
   const [quantity, setQuantity] = useState('');
   const [estimatedCost, setEstimatedCost] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (selectedProject) fetchBOQ();
-  }, [selectedProject]);
 
   const fetchBOQ = () => {
     if (!selectedProject) return;
@@ -43,32 +41,72 @@ export default function BOQPage() {
       });
   };
 
+  useEffect(() => {
+    if (selectedProject) fetchBOQ();
+  }, [selectedProject]);
+
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description || !unit || !quantity || !estimatedCost || !selectedProject) return;
+    setModalError(null);
 
+    if (!selectedProject) {
+      setModalError('Please select an active project first.');
+      return;
+    }
+
+    const cleanDesc = description.trim();
+    if (!cleanDesc || cleanDesc.length < 2) {
+      setModalError('Item description must be at least 2 characters long.');
+      return;
+    }
+
+    const cleanUnit = unit.trim();
+    if (!cleanUnit) {
+      setModalError('Unit of measurement is required (e.g. m³, Bags, MT, Nos).');
+      return;
+    }
+
+    const numQty = parseFloat(quantity);
+    if (isNaN(numQty) || numQty <= 0) {
+      setModalError('Quantity must be a positive number greater than 0.');
+      return;
+    }
+
+    const numCost = parseFloat(estimatedCost);
+    if (isNaN(numCost) || numCost <= 0) {
+      setModalError('Estimated cost must be greater than 0.');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const res = await fetch('/api/boq', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          description,
-          unit,
-          quantity,
-          estimatedCost,
+          description: cleanDesc,
+          unit: cleanUnit,
+          quantity: numQty,
+          estimatedCost: numCost,
           projectId: selectedProject.id,
         }),
       });
+      const data = await res.json();
       if (res.ok) {
         setDescription('');
         setUnit('');
         setQuantity('');
         setEstimatedCost('');
+        setModalError(null);
         setShowAddModal(false);
         fetchBOQ();
+      } else {
+        setModalError(data.error || 'Failed to add BOQ item.');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      setModalError('Network error while saving BOQ item.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -220,8 +258,16 @@ export default function BOQPage() {
                 <h3 className="text-base font-bold text-primary">Add BOQ Line Item</h3>
                 <p className="text-xs text-on-surface-variant">{selectedProject?.name}</p>
               </div>
-              <span onClick={() => setShowAddModal(false)} className="material-symbols-outlined cursor-pointer text-on-surface-variant hover:text-primary">close</span>
+              <span onClick={() => { setShowAddModal(false); setModalError(null); }} className="material-symbols-outlined cursor-pointer text-on-surface-variant hover:text-primary">close</span>
             </div>
+
+            {modalError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-bold flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px]">error</span>
+                <span>{modalError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleAddItem} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">Item Description</label>
@@ -265,8 +311,10 @@ export default function BOQPage() {
                 </div>
               </div>
               <div className="flex gap-3 justify-end pt-2">
-                <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 border border-outline-variant text-xs font-bold uppercase tracking-wider rounded-xl">Cancel</button>
-                <button type="submit" className="px-5 py-2 bg-primary text-on-primary text-xs font-bold uppercase tracking-wider rounded-xl shadow">Save Item</button>
+                <button type="button" onClick={() => { setShowAddModal(false); setModalError(null); }} className="px-4 py-2 border border-outline-variant text-xs font-bold uppercase tracking-wider rounded-xl">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="px-5 py-2 bg-primary text-on-primary text-xs font-bold uppercase tracking-wider rounded-xl shadow disabled:opacity-50">
+                  {isSubmitting ? 'Saving Item...' : 'Save Item'}
+                </button>
               </div>
             </form>
           </div>

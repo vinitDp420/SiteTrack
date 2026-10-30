@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import WorkerFaceKiosk from '@/components/WorkerFaceKiosk';
 import {
   Building2,
   Mail,
@@ -15,6 +16,7 @@ import {
   Users,
   Shield,
   Check,
+  ScanFace,
 } from 'lucide-react';
 
 type RoleKey = 'Supervisor' | 'Worker' | 'Administrator';
@@ -40,10 +42,10 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
   {
     role: 'Worker',
     label: 'Worker',
-    badge: 'Mobile Field',
+    badge: 'Attendance',
     email: 'worker@sitetrack.com',
     password: 'Worker@123',
-    icon: Users,
+    icon: ScanFace,
   },
   {
     role: 'Administrator',
@@ -64,26 +66,51 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [workerPasswordMode, setWorkerPasswordMode] = useState(false);
 
   const handleRoleSelect = (account: DemoAccount) => {
     setSelectedRole(account.role);
     setEmail(account.email);
     setPassword(account.password);
     setError(null);
+    if (account.role === 'Worker') {
+      setWorkerPasswordMode(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!email || !password) {
-      setError('Please enter both your email/username and password.');
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail) {
+      setError('Please enter your registered email or username.');
+      return;
+    }
+
+    if (cleanEmail.includes('@') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setError('Please enter a valid email address format.');
+      return;
+    }
+
+    if (!cleanPassword) {
+      setError('Please enter your account password.');
+      return;
+    }
+
+    if (cleanPassword.length < 6) {
+      setError('Password must be at least 6 characters long.');
       return;
     }
 
     setLoading(true);
 
     try {
+      const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const callbackParam = params?.get('callbackUrl');
+
       const result = await signIn('credentials', {
         email: email.trim(),
         password: password.trim(),
@@ -96,23 +123,19 @@ export default function LoginPage() {
         return;
       }
 
-      // Fetch the updated session to get the user's role
-      const res = await fetch('/api/auth/session');
-      const session = await res.json();
-      const userRole = session?.user?.role;
-
-      if (userRole === 'ADMIN' || userRole === 'SUPERVISOR') {
-        router.replace('/admin/dashboard');
-      } else if (userRole === 'WORKER') {
-        router.replace('/worker/home');
-      } else {
-        router.replace('/admin/dashboard');
+      // Hard redirect using window.location to guarantee NextAuth session cookie propagation to middleware
+      let targetUrl = callbackParam && !callbackParam.includes('/login') ? callbackParam : '/admin/dashboard';
+      if (selectedRole === 'Worker') {
+        targetUrl = '/worker/home';
       }
+      window.location.href = targetUrl;
     } catch (err: any) {
       setError('Unable to connect to the authentication service. Please try again.');
       setLoading(false);
     }
   };
+
+  const isWorkerFaceMode = selectedRole === 'Worker' && !workerPasswordMode;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-between text-slate-800 antialiased font-sans">
@@ -144,26 +167,35 @@ export default function LoginPage() {
       </header>
 
       {/* Main Centered Login Section */}
-      <main className="flex-1 flex items-center justify-center px-4 py-12 sm:px-6">
-        <div className="w-full max-w-[440px]">
+      <main className="flex-1 flex items-center justify-center px-4 py-8 sm:px-6">
+        <div className={`w-full ${isWorkerFaceMode ? 'max-w-[500px]' : 'max-w-[440px]'} transition-all duration-300`}>
           
           {/* Card Container */}
           <div className="bg-white border border-slate-200/90 rounded-2xl shadow-[0_4px_24px_-4px_rgba(15,23,42,0.08)] p-6 sm:p-8">
             
             {/* Header */}
-            <div className="text-center mb-7">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-                Sign in to your account
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center justify-center gap-2">
+                {isWorkerFaceMode ? (
+                  <>
+                    <ScanFace className="w-6 h-6 text-blue-600" />
+                    <span>Worker Attendance</span>
+                  </>
+                ) : (
+                  <span>Sign in to your account</span>
+                )}
               </h1>
               <p className="text-sm text-slate-500 mt-1.5">
-                Select your role or enter your credentials below
+                {isWorkerFaceMode
+                  ? 'Face scan to Clock In or Clock Out'
+                  : 'Select your role or enter your credentials below'}
               </p>
             </div>
 
             {/* Clean Segmented Role Switcher */}
             <div className="mb-6">
               <label className="block text-xs font-semibold text-slate-600 mb-2">
-                Quick Role Selection
+                Role Selection
               </label>
               <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/60">
                 {DEMO_ACCOUNTS.map((acc) => {
@@ -189,157 +221,184 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Error Message Alert */}
-            {error && (
-              <div className="mb-5 p-3.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-start gap-2.5">
-                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="font-semibold">Sign in error</p>
-                  <p className="text-red-600 mt-0.5">{error}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              
-              {/* Email / Username Field */}
-              <div>
-                <label
-                  htmlFor="email"
-                  className="block text-xs font-semibold text-slate-700 mb-1.5"
-                >
-                  Email or Username
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <Mail className="w-4 h-4" />
-                  </div>
-                  <input
-                    id="email"
-                    name="email"
-                    type="text"
-                    required
-                    suppressHydrationWarning
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@company.com"
-                    className="w-full h-10 pl-9 pr-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
-                  />
-                </div>
-              </div>
-
-              {/* Password Field */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label
-                    htmlFor="password"
-                    className="block text-xs font-semibold text-slate-700"
-                  >
-                    Password
-                  </label>
-                  <span className="text-[11px] text-slate-400">
-                    Default: {selectedRole}@123
-                  </span>
-                </div>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <Lock className="w-4 h-4" />
-                  </div>
-                  <input
-                    id="password"
-                    name="password"
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    suppressHydrationWarning
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full h-10 pl-9 pr-10 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
-                  />
-                  <button
-                    type="button"
-                    suppressHydrationWarning
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Remember Me Option */}
-              <div className="flex items-center justify-between pt-1">
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600 select-none">
-                  <input
-                    type="checkbox"
-                    suppressHydrationWarning
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>Keep me signed in</span>
-                </label>
-              </div>
-
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={loading}
-                suppressHydrationWarning
-                className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer mt-2"
-              >
-                {loading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Signing in...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Sign In</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            {/* Demo Accounts Reference Table */}
-            <div className="mt-8 pt-5 border-t border-slate-100">
-              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">
-                Demo Accounts
-              </p>
-              <div className="space-y-1.5">
-                {DEMO_ACCOUNTS.map((acc) => {
-                  const isCurrent = selectedRole === acc.role;
-                  return (
+            {/* If Worker Face Mode is Active */}
+            {isWorkerFaceMode ? (
+              <WorkerFaceKiosk
+                onSwitchToPasswordLogin={() => setWorkerPasswordMode(true)}
+              />
+            ) : (
+              /* Credentials Form (For Supervisor, Admin, or Manual Worker) */
+              <>
+                {/* Switch back to Face Mode pill if worker manually chose password */}
+                {selectedRole === 'Worker' && workerPasswordMode && (
+                  <div className="mb-4 p-2.5 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                      <ScanFace className="w-4 h-4 text-blue-600" />
+                      Face Scan Machine is ready
+                    </span>
                     <button
-                      key={acc.role}
                       type="button"
-                      suppressHydrationWarning
-                      onClick={() => handleRoleSelect(acc)}
-                      className={`w-full text-left p-2.5 rounded-lg border text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                        isCurrent
-                          ? 'bg-blue-50/60 border-blue-200/80 text-blue-900'
-                          : 'bg-slate-50/60 border-slate-200/60 text-slate-600 hover:bg-slate-100/70 hover:text-slate-900'
-                      }`}
+                      onClick={() => setWorkerPasswordMode(false)}
+                      className="text-xs font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer"
                     >
-                      <div className="flex items-center gap-2 truncate">
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          isCurrent ? 'bg-blue-600' : 'bg-slate-400'
-                        }`} />
-                        <span className="font-semibold text-slate-800">{acc.label}</span>
-                        <span className="text-slate-500 text-[11px] truncate">({acc.email})</span>
-                      </div>
-                      <div className="flex items-center gap-1 font-mono text-[11px] text-slate-500 shrink-0 ml-2">
-                        <span>{acc.password}</span>
-                        {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 ml-1" />}
-                      </div>
+                      Use Face Scanner
                     </button>
-                  );
-                })}
-              </div>
-            </div>
+                  </div>
+                )}
+
+                {/* Error Message Alert */}
+                {error && (
+                  <div className="mb-5 p-3.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold">Sign in error</p>
+                      <p className="text-red-600 mt-0.5">{error}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Form */}
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  
+                  {/* Email / Username Field */}
+                  <div>
+                    <label
+                      htmlFor="email"
+                      className="block text-xs font-semibold text-slate-700 mb-1.5"
+                    >
+                      Email or Username
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                        <Mail className="w-4 h-4" />
+                      </div>
+                      <input
+                        id="email"
+                        name="email"
+                        type="text"
+                        required
+                        suppressHydrationWarning
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="name@company.com"
+                        className="w-full h-10 pl-9 pr-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Password Field */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label
+                        htmlFor="password"
+                        className="block text-xs font-semibold text-slate-700"
+                      >
+                        Password
+                      </label>
+                      <span className="text-[11px] text-slate-400">
+                        Default: {selectedRole}@123
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                        <Lock className="w-4 h-4" />
+                      </div>
+                      <input
+                        id="password"
+                        name="password"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        suppressHydrationWarning
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full h-10 pl-9 pr-10 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
+                      />
+                      <button
+                        type="button"
+                        suppressHydrationWarning
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Remember Me Option */}
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600 select-none">
+                      <input
+                        type="checkbox"
+                        suppressHydrationWarning
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Keep me signed in</span>
+                    </label>
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    suppressHydrationWarning
+                    className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer mt-2"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Signing in...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Sign In</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {/* Demo Accounts Reference Table */}
+                <div className="mt-8 pt-5 border-t border-slate-100">
+                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">
+                    Demo Accounts
+                  </p>
+                  <div className="space-y-1.5">
+                    {DEMO_ACCOUNTS.map((acc) => {
+                      const isCurrent = selectedRole === acc.role;
+                      return (
+                        <button
+                          key={acc.role}
+                          type="button"
+                          suppressHydrationWarning
+                          onClick={() => handleRoleSelect(acc)}
+                          className={`w-full text-left p-2.5 rounded-lg border text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                            isCurrent
+                              ? 'bg-blue-50/60 border-blue-200/80 text-blue-900'
+                              : 'bg-slate-50/60 border-slate-200/60 text-slate-600 hover:bg-slate-100/70 hover:text-slate-900'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              isCurrent ? 'bg-blue-600' : 'bg-slate-400'
+                            }`} />
+                            <span className="font-semibold text-slate-800">{acc.label}</span>
+                            <span className="text-slate-500 text-[11px] truncate">({acc.email})</span>
+                          </div>
+                          <div className="flex items-center gap-1 font-mono text-[11px] text-slate-500 shrink-0 ml-2">
+                            <span>{acc.password}</span>
+                            {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 ml-1" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
 
           </div>
 

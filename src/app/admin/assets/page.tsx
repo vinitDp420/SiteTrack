@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useProject } from '@/lib/project-context';
 
 interface VehicleLog {
@@ -63,18 +63,7 @@ export default function AssetsPage() {
 
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetch('/api/workers')
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setWorkers(data);
-      })
-      .catch((e) => console.error(e));
-
-    fetchData();
-  }, []);
-
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     setLoading(true);
     fetch('/api/assets')
       .then((res) => res.json())
@@ -87,7 +76,18 @@ export default function AssetsPage() {
         console.error(e);
         setLoading(false);
       });
-  };
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/workers')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setWorkers(data);
+      })
+      .catch((e) => console.error(e));
+
+    fetchData();
+  }, []);
 
   const handleCreateVehicleLog = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -329,7 +329,7 @@ export default function AssetsPage() {
                               <span>{new Date(v.logs[0].date).toLocaleDateString()}</span>
                               <span>{v.logs[0].hoursUsed} hrs used</span>
                             </div>
-                            {v.logs[0].notes && <p className="text-on-surface-variant italic">"{v.logs[0].notes}"</p>}
+                            {v.logs[0].notes && <p className="text-on-surface-variant italic">{`'${v.logs[0].notes}'`}</p>}
                           </div>
                         </div>
                       )}

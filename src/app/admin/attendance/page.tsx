@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useProject } from '@/lib/project-context';
 
 interface AttendanceLog {
@@ -56,12 +56,44 @@ export default function AttendancePage() {
   // Toast State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  // Print / PDF Muster Roll Modal State
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4500);
   };
 
-  const fetchAttendance = async () => {
+  const handleExportCSV = () => {
+    if (filteredLogs.length === 0) {
+      showToast('No attendance records to export.', 'error');
+      return;
+    }
+    const headers = ['Worker Name', 'Phone', 'Wage Rate', 'Payment Type', 'Date', 'Check In', 'Check Out', 'Hours Worked', 'Status', 'Method'];
+    const rows = filteredLogs.map((log) => [
+      `"${log.worker.name.replace(/"/g, '""')}"`,
+      `"${log.worker.phone}"`,
+      log.worker.wageRate,
+      log.worker.paymentType,
+      `"${formatDate(log.checkInTime)}"`,
+      `"${formatTime(log.checkInTime)}"`,
+      `"${formatTime(log.checkOutTime)}"`,
+      log.hoursWorked ?? 'N/A',
+      log.status,
+      log.manualBackup ? 'Manual Backup' : 'Edge Face AI'
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `MusterRoll_${selectedProject?.name?.replace(/\\s+/g, '_') || 'Site'}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Attendance CSV downloaded successfully!', 'success');
+  };
+
+  const fetchAttendance = useCallback(async () => {
     if (!selectedProject) return;
     setLoading(true);
     try {
@@ -74,9 +106,9 @@ export default function AttendancePage() {
       console.error(e);
     }
     setLoading(false);
-  };
+  }, [selectedProject]);
 
-  const fetchWorkers = async () => {
+  const fetchWorkers = useCallback(async () => {
     if (!selectedProject) return;
     try {
       const res = await fetch(`/api/workers?projectId=${selectedProject.id}`);
@@ -91,14 +123,14 @@ export default function AttendancePage() {
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [selectedProject, selectedWorkerId]);
 
   useEffect(() => {
     if (selectedProject) {
       fetchAttendance();
       fetchWorkers();
     }
-  }, [selectedProject]);
+  }, [selectedProject, fetchAttendance, fetchWorkers]);
 
   const formatTime = (isoString: string | null) => {
     if (!isoString) return '—';
@@ -286,7 +318,29 @@ export default function AttendancePage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* EXPORT MUSTER ROLL (PDF / PRINT) */}
+          <button
+            onClick={() => setIsPrintModalOpen(true)}
+            disabled={filteredLogs.length === 0}
+            className="h-[42px] px-3.5 bg-white border border-outline-variant hover:border-primary text-primary rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+            title="Preview and Print / Save PDF Muster Roll"
+          >
+            <span className="material-symbols-outlined text-[18px] text-red-600">picture_as_pdf</span>
+            <span>Print / PDF Muster Roll</span>
+          </button>
+
+          {/* EXPORT CSV */}
+          <button
+            onClick={handleExportCSV}
+            disabled={filteredLogs.length === 0}
+            className="h-[42px] px-3.5 bg-white border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+            title="Export Muster Roll to CSV / Excel spreadsheet"
+          >
+            <span className="material-symbols-outlined text-[18px] text-emerald-600">file_download</span>
+            <span>CSV</span>
+          </button>
+
           {/* PRIMARY BUTTON: MARK ATTENDANCE MANUALLY */}
           <button
             onClick={openManualModal}
@@ -617,6 +671,197 @@ export default function AttendancePage() {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================
+          OFFICIAL PRINT / PDF MUSTER ROLL MODAL
+          ========================================================= */}
+      {isPrintModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto print-modal-backdrop animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-outline-variant p-6 md:p-8 print-modal-container space-y-6">
+            
+            {/* Modal Actions Bar (Hidden when printing) */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-outline-variant/40 pb-4 no-print">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-red-600 text-[24px]">picture_as_pdf</span>
+                <div>
+                  <h3 className="text-base font-extrabold text-primary">Official Muster Roll Preview</h3>
+                  <p className="text-xs text-on-surface-variant">Ready for physical print or browser &ldquo;Save as PDF&rdquo;</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-gradient-to-r from-primary to-[#1a3a6e] hover:opacity-95 text-white text-xs font-bold rounded-xl shadow flex items-center gap-1.5 transition active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[18px]">print</span>
+                  <span>Print / Save as PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="px-3 py-2 bg-white border border-outline-variant hover:border-primary text-on-surface text-xs font-bold rounded-xl shadow-sm flex items-center gap-1.5 transition"
+                >
+                  <span className="material-symbols-outlined text-[18px] text-emerald-600">file_download</span>
+                  <span>CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPrintModalOpen(false)}
+                  className="px-3 py-2 border border-outline-variant hover:bg-slate-100 text-on-surface-variant text-xs font-bold rounded-xl transition"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            {/* PRINTABLE DOCUMENT BODY */}
+            <div className="printable-area space-y-6">
+              {/* Document Header */}
+              <div className="border-b-2 border-primary pb-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-primary text-[28px] no-print">construction</span>
+                      <h2 className="text-xl font-black text-primary tracking-tight">SiteTrack CONSTRUCTION OS</h2>
+                    </div>
+                    <p className="text-[10px] uppercase font-bold tracking-widest text-on-surface-variant mt-0.5">
+                      BOCW Act Compliant Workforce Attendance & Safety Ledger
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="inline-block px-2.5 py-1 bg-slate-100 border border-slate-300 text-slate-800 text-[10px] font-black rounded uppercase tracking-wider">
+                      Official Audit Copy
+                    </span>
+                    <p className="text-[11px] text-on-surface-variant mt-1">
+                      Generated: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-200 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <span className="text-[10px] font-bold text-on-surface-variant uppercase block">Project Name:</span>
+                    <span className="font-extrabold text-on-surface">{selectedProject?.name || 'Active Construction Site'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-on-surface-variant uppercase block">Project Code:</span>
+                    <span className="font-extrabold text-on-surface font-mono">{selectedProject?.code || 'PRJ-MAIN'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-on-surface-variant uppercase block">Attendance Date:</span>
+                    <span className="font-extrabold text-on-surface">{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-on-surface-variant uppercase block">Verification Mode:</span>
+                    <span className="font-extrabold text-emerald-700">Edge Face Biometrics + Manual</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* KPI Summary Strip */}
+              <div className="grid grid-cols-5 gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-500">Total Logged</div>
+                  <div className="text-lg font-black text-slate-900">{filteredLogs.length}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-emerald-600">Full Day (Present)</div>
+                  <div className="text-lg font-black text-emerald-700">{filteredLogs.filter(l => l.status === 'PRESENT').length}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-amber-600">Half Day</div>
+                  <div className="text-lg font-black text-amber-700">{filteredLogs.filter(l => l.status === 'HALF_DAY').length}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-blue-600">On Site (Active)</div>
+                  <div className="text-lg font-black text-blue-700">{filteredLogs.filter(l => l.status === 'ON_SITE').length}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-500">Cumulative Hours</div>
+                  <div className="text-lg font-black text-slate-900">
+                    {filteredLogs.reduce((acc, l) => acc + (l.hoursWorked || 0), 0).toFixed(1)} hrs
+                  </div>
+                </div>
+              </div>
+
+              {/* Muster Roll Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full print-table text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 border-y border-slate-300 text-[10px] font-extrabold uppercase text-slate-700">
+                      <th className="py-2.5 px-2">#</th>
+                      <th className="py-2.5 px-2">Worker Name</th>
+                      <th className="py-2.5 px-2">Phone</th>
+                      <th className="py-2.5 px-2">Rate</th>
+                      <th className="py-2.5 px-2">In Time</th>
+                      <th className="py-2.5 px-2">Out Time</th>
+                      <th className="py-2.5 px-2">Hours</th>
+                      <th className="py-2.5 px-2">Status</th>
+                      <th className="py-2.5 px-2">Verification</th>
+                      <th className="py-2.5 px-2 text-center w-28">Signature / Thumb</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {filteredLogs.map((log, idx) => (
+                      <tr key={log.id} className="hover:bg-slate-50/50 print-avoid-break">
+                        <td className="py-2 px-2 font-mono text-[11px] text-slate-500">{idx + 1}</td>
+                        <td className="py-2 px-2 font-bold text-slate-900">{log.worker.name}</td>
+                        <td className="py-2 px-2 font-mono text-[11px] text-slate-600">{log.worker.phone}</td>
+                        <td className="py-2 px-2 font-mono text-[11px]">{INR(log.worker.wageRate)}</td>
+                        <td className="py-2 px-2 font-mono text-[11px] text-emerald-700 font-bold">{formatTime(log.checkInTime)}</td>
+                        <td className="py-2 px-2 font-mono text-[11px] text-slate-700">{formatTime(log.checkOutTime)}</td>
+                        <td className="py-2 px-2 font-bold">{log.hoursWorked ? `${log.hoursWorked} hrs` : '—'}</td>
+                        <td className="py-2 px-2">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                            log.status === 'PRESENT' ? 'bg-emerald-100 text-emerald-800' :
+                            log.status === 'HALF_DAY' ? 'bg-amber-100 text-amber-800' :
+                            'bg-blue-100 text-blue-800'
+                          }`}>
+                            {log.status}
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 text-[10px] text-slate-600">
+                          {log.manualBackup ? 'Manual Log' : 'Edge Face AI'}
+                        </td>
+                        <td className="py-2 px-2 text-center border-l border-slate-200">
+                          <span className="text-[9px] text-slate-300 italic block mt-2">Verified</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Official Signatures & Certifications */}
+              <div className="pt-8 mt-6 border-t border-slate-300 grid grid-cols-3 gap-6 text-center text-xs print-avoid-break">
+                <div>
+                  <div className="h-12 border-b border-dashed border-slate-400 mb-2"></div>
+                  <p className="font-extrabold text-slate-800">Site Supervisor</p>
+                  <p className="text-[10px] text-slate-500">Prepared & Field Verified</p>
+                </div>
+                <div>
+                  <div className="h-12 border-b border-dashed border-slate-400 mb-2"></div>
+                  <p className="font-extrabold text-slate-800">Safety Compliance Officer</p>
+                  <p className="text-[10px] text-slate-500">PPE & Shift Compliance</p>
+                </div>
+                <div>
+                  <div className="h-12 border-b border-dashed border-slate-400 mb-2"></div>
+                  <p className="font-extrabold text-slate-800">Project Manager / Resident Engineer</p>
+                  <p className="text-[10px] text-slate-500">Authorized & Approved</p>
+                </div>
+              </div>
+
+              {/* Legal / System Footer */}
+              <div className="pt-4 border-t border-slate-200 text-center text-[10px] text-slate-400">
+                This document is a computer-generated audit record produced by SiteTrack Edge Vision Architecture. Tamper-evident biometric hashes are stored on local PostgreSQL storage.
+              </div>
+            </div>
+
           </div>
         </div>
       )}

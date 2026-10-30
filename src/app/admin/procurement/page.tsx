@@ -52,13 +52,10 @@ export default function ProcurementPage() {
   const [supplierPhone, setSupplierPhone] = useState('');
   const [supplierMaterials, setSupplierMaterials] = useState('');
   const [useQty, setUseQty] = useState('');
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (selectedProject) fetchData();
-  }, [selectedProject]);
-
 
   const fetchData = () => {
     if (!selectedProject) return;
@@ -78,61 +75,116 @@ export default function ProcurementPage() {
       .catch((e) => { console.error(e); setLoading(false); });
   };
 
+  useEffect(() => {
+    if (selectedProject) fetchData();
+  }, [selectedProject]);
+
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!itemName || !quantity || !unit || !selectedProject || !session?.user) return;
+    setModalError(null);
 
+    if (!selectedProject) {
+      setModalError('Please select an active project first.');
+      return;
+    }
+    const cleanItem = itemName.trim();
+    if (!cleanItem || cleanItem.length < 2) {
+      setModalError('Item name must be at least 2 characters long.');
+      return;
+    }
+    const numQty = parseFloat(quantity);
+    if (isNaN(numQty) || numQty <= 0) {
+      setModalError('Quantity must be a positive number greater than 0.');
+      return;
+    }
+    const cleanUnit = unit.trim();
+    if (!cleanUnit) {
+      setModalError('Unit of measurement is required (e.g. Bags, Tons, Nos, Sq.ft).');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const res = await fetch('/api/procurement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'create_request',
-          itemName,
-          quantity,
-          unit,
+          itemName: cleanItem,
+          quantity: numQty,
+          unit: cleanUnit,
           projectId: selectedProject.id,
-          requestedById: (session.user as any).id,
-          supplierId,
+          requestedById: (session?.user as any)?.id,
+          supplierId: supplierId || null,
         }),
       });
+      const data = await res.json();
       if (res.ok) {
         setItemName('');
         setQuantity('');
         setUnit('');
         setSupplierId('');
+        setModalError(null);
         setShowRequestModal(false);
         fetchData();
+      } else {
+        setModalError(data.error || 'Failed to file material request.');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      setModalError('Network error while filing request.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleCreateSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supplierName || !supplierPhone || !supplierMaterials) return;
+    setModalError(null);
 
+    const cleanName = supplierName.trim();
+    if (!cleanName || cleanName.length < 2) {
+      setModalError('Supplier company or contact name must be at least 2 characters.');
+      return;
+    }
+    const cleanPhone = supplierPhone.trim().replace(/[\s-]/g, '');
+    const phoneRegex = /^(?:\+91|0)?[6-9]\d{9}$/;
+    if (!phoneRegex.test(cleanPhone)) {
+      setModalError('Please enter a valid 10-digit Indian mobile number for the supplier.');
+      return;
+    }
+    const cleanMaterials = supplierMaterials.trim();
+    if (!cleanMaterials || cleanMaterials.length < 3) {
+      setModalError('Please specify materials supplied by this vendor.');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const res = await fetch('/api/procurement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'create_supplier',
-          name: supplierName,
-          phone: supplierPhone,
-          materialsSupplied: supplierMaterials,
+          name: cleanName,
+          phone: cleanPhone.startsWith('+91') ? cleanPhone.slice(3) : cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone,
+          materialsSupplied: cleanMaterials,
         }),
       });
+      const data = await res.json();
       if (res.ok) {
         setSupplierName('');
         setSupplierPhone('');
         setSupplierMaterials('');
+        setModalError(null);
         setShowSupplierModal(false);
         fetchData();
+      } else {
+        setModalError(data.error || 'Failed to register supplier.');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      setModalError('Network error while registering supplier.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -158,6 +210,16 @@ export default function ProcurementPage() {
     e.preventDefault();
     if (!selectedStockItem || !useQty) return;
 
+    const num = parseFloat(useQty);
+    if (isNaN(num) || num <= 0) {
+      alert('Deduct quantity must be a positive number greater than 0.');
+      return;
+    }
+    if (num > selectedStockItem.quantityOnHand) {
+      alert(`Cannot deduct more than available quantity on hand (${selectedStockItem.quantityOnHand} ${selectedStockItem.unit}).`);
+      return;
+    }
+
     try {
       const res = await fetch('/api/procurement', {
         method: 'PUT',
@@ -165,7 +227,7 @@ export default function ProcurementPage() {
         body: JSON.stringify({
           action: 'use_stock_item',
           id: selectedStockItem.id,
-          quantityToUse: useQty,
+          quantityToUse: num,
         }),
       });
       if (res.ok) {
@@ -518,12 +580,20 @@ export default function ProcurementPage() {
             <div className="flex justify-between items-center border-b border-outline-variant/30 pb-3">
               <h3 className="text-base font-bold text-primary">File Material Request</h3>
               <span
-                onClick={() => setShowRequestModal(false)}
+                onClick={() => { setShowRequestModal(false); setModalError(null); }}
                 className="material-symbols-outlined cursor-pointer text-on-surface-variant hover:text-primary"
               >
                 close
               </span>
             </div>
+
+            {modalError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-bold flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px]">error</span>
+                <span>{modalError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleCreateRequest} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">
@@ -610,12 +680,20 @@ export default function ProcurementPage() {
             <div className="flex justify-between items-center border-b border-outline-variant/30 pb-3">
               <h3 className="text-base font-bold text-primary">Register New Supplier</h3>
               <span
-                onClick={() => setShowSupplierModal(false)}
+                onClick={() => { setShowSupplierModal(false); setModalError(null); }}
                 className="material-symbols-outlined cursor-pointer text-on-surface-variant hover:text-primary"
               >
                 close
               </span>
             </div>
+
+            {modalError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-bold flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px]">error</span>
+                <span>{modalError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleCreateSupplier} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">

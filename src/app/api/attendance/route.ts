@@ -82,7 +82,7 @@ export async function POST(req: Request) {
     // Parse Dates
     const shiftDate = date ? new Date(date) : new Date();
     const parsedCheckIn = checkInTime ? new Date(checkInTime) : new Date();
-    let parsedCheckOut: Date | null = checkOutTime ? new Date(checkOutTime) : null;
+    const parsedCheckOut: Date | null = checkOutTime ? new Date(checkOutTime) : null;
 
     let computedHoursWorked: number | null = null;
     let attendanceStatus = status || 'ON_SITE';

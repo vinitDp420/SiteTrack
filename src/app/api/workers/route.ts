@@ -80,8 +80,24 @@ export async function POST(req: NextRequest) {
       password,
     } = body;
 
-    if (!name || !phone || !wageRate || !projectId) {
-      return NextResponse.json({ error: 'Missing required fields (Name, Phone, Wage Rate, Project).' }, { status: 400 });
+    const cleanName = typeof name === 'string' ? name.trim() : '';
+    const cleanPhone = typeof phone === 'string' ? phone.trim().replace(/[^0-9]/g, '') : '';
+    const numWage = Number(wageRate);
+
+    if (!cleanName || cleanName.length < 2) {
+      return NextResponse.json({ error: 'Worker name must be at least 2 characters long.' }, { status: 400 });
+    }
+
+    if (!cleanPhone || cleanPhone.length < 10) {
+      return NextResponse.json({ error: 'Worker phone must contain at least 10 numeric digits.' }, { status: 400 });
+    }
+
+    if (isNaN(numWage) || numWage <= 0) {
+      return NextResponse.json({ error: 'Daily wage rate must be a positive number greater than 0.' }, { status: 400 });
+    }
+
+    if (!projectId) {
+      return NextResponse.json({ error: 'Project ID is required.' }, { status: 400 });
     }
 
     // Determine login email

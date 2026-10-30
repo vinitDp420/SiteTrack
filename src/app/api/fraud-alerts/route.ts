@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { broadcastAlert } from '@/lib/sse-broadcaster';
 
 export async function GET(req: Request) {
   try {
@@ -151,6 +152,7 @@ export async function POST(req: Request) {
               },
             });
             createdAlerts.push(newAlert);
+            broadcastAlert({ type: 'alert', ...newAlert });
           }
         }
       }
@@ -227,6 +229,22 @@ export async function POST(req: Request) {
         details: details || null,
         timestamp: new Date(),
       },
+      include: {
+        worker: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            project: { select: { id: true, name: true, code: true } },
+          },
+        },
+      },
+    });
+
+    // Broadcast to SSE clients
+    broadcastAlert({
+      type: 'alert',
+      ...alert,
     });
 
     return NextResponse.json({ success: true, alert });

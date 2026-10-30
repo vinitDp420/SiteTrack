@@ -1,49 +1,47 @@
-import { withAuth } from 'next-auth/middleware';
-import { NextResponse } from 'next/server';
+import { getToken } from 'next-auth/jwt';
+import { NextResponse, type NextRequest } from 'next/server';
 
-export default withAuth(
-  function middleware(req) {
-    const token = req.nextauth.token;
-    const path = req.nextUrl.pathname;
+const secret = process.env.NEXTAUTH_SECRET || 'sitetrack-secret-key-321-654-987';
 
-    // If not authenticated, let next-auth handle redirection to signIn page
-    if (!token) {
-      return NextResponse.redirect(new URL('/login', req.url));
-    }
+export async function middleware(req: NextRequest) {
+  const path = req.nextUrl.pathname;
 
-    const role = token.role as string;
+  const token = await getToken({
+    req,
+    secret,
+  });
 
-    // Admin/Supervisor protection
-    if (path.startsWith('/admin') && role !== 'ADMIN' && role !== 'SUPERVISOR') {
-      // Redirect unauthorized workers to the mobile home page
-      return NextResponse.redirect(new URL('/worker/home', req.url));
-    }
+  // If not authenticated, redirect to /login with callbackUrl
+  if (!token) {
+    const loginUrl = new URL('/login', req.url);
+    loginUrl.searchParams.set('callbackUrl', req.nextUrl.pathname + req.nextUrl.search);
+    return NextResponse.redirect(loginUrl);
+  }
 
-    // Supervisor restrictions for financial/sensitive admin paths
-    if (role === 'SUPERVISOR') {
-      const restrictedPaths = ['/admin/payments', '/admin/payroll', '/admin/boq', '/admin/fraud-alerts'];
-      if (restrictedPaths.some(p => path.startsWith(p))) {
-        return NextResponse.redirect(new URL('/admin/dashboard', req.url));
-      }
-    }
+  const role = (token.role as string) || 'WORKER';
 
+  // Admin/Supervisor protection
+  if (path.startsWith('/admin') && role !== 'ADMIN' && role !== 'SUPERVISOR') {
+    return NextResponse.redirect(new URL('/worker/home', req.url));
+  }
 
-    // Worker protection
-    if (path.startsWith('/worker') && role !== 'WORKER') {
-      // Redirect admins/supervisors to the admin dashboard
+  // Supervisor restrictions for financial/sensitive admin paths
+  if (role === 'SUPERVISOR') {
+    const restrictedPaths = ['/admin/payments', '/admin/payroll', '/admin/boq', '/admin/fraud-alerts'];
+    if (restrictedPaths.some((p) => path.startsWith(p))) {
       return NextResponse.redirect(new URL('/admin/dashboard', req.url));
     }
-
-    return NextResponse.next();
-  },
-  {
-    callbacks: {
-      authorized: ({ token }) => !!token,
-    },
   }
-);
 
-// Protect all admin and worker routes, but let login and api routes remain public
+  // Worker protection
+  if (path.startsWith('/worker') && role !== 'WORKER') {
+    return NextResponse.redirect(new URL('/admin/dashboard', req.url));
+  }
+
+  return NextResponse.next();
+}
+
+// Protect all admin and worker routes, but let login, public assets, and api routes remain public
 export const config = {
   matcher: ['/admin/:path*', '/worker/:path*'],
 };

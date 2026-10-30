@@ -124,6 +124,30 @@ export async function processDailyPayoutForWorker(workerId: string, customAmount
       },
     });
 
+    // Create corresponding payroll record for successful daily payouts
+    if (result.success) {
+      // Calculate hours from attendance for this worker today
+      const todayAttendance = await prisma.attendance.findFirst({
+        where: {
+          workerId,
+          checkOutTime: { not: null },
+          checkInTime: { gte: today },
+        },
+        orderBy: { checkOutTime: 'desc' },
+      });
+
+      await prisma.payroll.create({
+        data: {
+          workerId,
+          periodStart: today,
+          periodEnd: new Date(),
+          totalHours: todayAttendance?.hoursWorked ?? 8,
+          totalEarnings: amount,
+          status: 'APPROVED',
+        },
+      });
+    }
+
     return {
       success: result.success,
       message: result.success

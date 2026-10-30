@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Hide the recurring 'Compiling...' and 'Rendering...' dev badge in the browser
+  devIndicators: false,
   // Allow mobile testing on local network
   experimental: {
     serverActions: {
